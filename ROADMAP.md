@@ -279,57 +279,43 @@ CREATE TABLE chats (
 
 ---
 
-### Phase 3：知识库管理 ✅ 已完成
+### Phase 3：知识库管理（预计 1-2 天）
+
+**目标**：实现知识库的增删查，前端侧边栏可展示并切换知识库。
+
+任务清单：
+- `GET / POST / DELETE /api/workspaces` 路由
+- 侧边栏组件（借鉴 AnythingLLM Sidebar，裁剪 threads/embed 功能）
+- 点击知识库跳转至 `/workspace/:slug`
+- 新建知识库弹窗（输入名称，自动生成 slug）
+- 删除知识库二次确认
+
+**完成标志**：可创建多个知识库并在侧边栏切换。
+
+---
+
+### Phase 4：文档摄取管道 ✅ 已完成
 
 **完成时间**：2026-04-02
 
 **已交付文件：**
-- `server/routes/workspaces.js` — GET/POST/GET:slug/PUT:slug/DELETE:slug 全部封装，全部需 requireAuth
-- `frontend/src/utils/api.js` — `authFetch` / `authUpload` 公用工具（自动 token，401 自动跳登录）
-- `frontend/src/api/workspaces.js` — getAll/getBySlug/create/update/remove 接口
-- `frontend/src/components/Sidebar/index.jsx` — 完整侧边栏：Logo+用户名+知识库列表+单击删除二次确认+设置/登出按钮
-- `frontend/src/components/Sidebar/NewWorkspaceModal.jsx` — 新建弹窗，创建后自动跳转
-- `frontend/src/pages/WorkspaceChat/index.jsx` — Sidebar+主内容区布局，空状态引导，已选中显示标题栏
+- `server/middleware/upload.js` — multer 内存存储，文件类型白名单，大小限制
+- `server/services/parser.js` — PDF/Word/Excel/TXT/MD 按扩展名路由
+- `server/services/chunker.js` — token-aware 滑动窗口分块（cl100k_base），500 tokens/chunk，50 重叠
+- `server/services/embedding.js` — openai SDK 封装，分批 100/批
+- `server/services/vectordb.js` — addVectors/similaritySearch/deleteByWorkspaceId/deleteByDocIds
+- `server/routes/workspaces.js` — 新增文档子路由：GET/POST/DELETE /documents
+- `frontend/src/api/documents.js` — getDocuments/uploadDocument/deleteDocument
+- `frontend/src/components/DocumentManager/index.jsx` — 拖拽上传+文档列表+删除二次确认
+- `frontend/src/pages/WorkspaceChat/index.jsx` — 头部添加「文档」 Toggle，右侧抓屉式面板
 
 **关键设计：**
-- Slug 冲突自动附加随机后缀
-- 删除 hover 显示图标，首次点击变红 3s，再次点击确认删除
-- CASCADE 联级删除文档和向量
+- 文件 MD5 hash 去重，相同文件不重复入库
+- 上传全流程在单个 HTTP 请求内完成（解析→分块→入库→Embed→写向量）
+- cosine 相似度转换: `1 - distance`
 
 **验证结果：**
-- `yarn build`：✅ 构建成功，227KB JS bundle
-
----
-
-### Phase 4：文档摄取管道（预计 3-4 天）
-
-**目标**：实现文档上传 → 解析 → 分块 → Embedding → 存入 pgvector 完整链路。
-
-任务清单：
-
-**后端：**
-- `parser.js`：按 MIME 类型路由到对应解析器
-  - PDF：`pdf-parse`
-  - Word（.docx）：`mammoth`
-  - Excel（.xlsx）：`node-xlsx`
-  - 纯文本/Markdown：直接读取
-- `chunker.js`：从 AnythingLLM `TextSplitter` 裁剪，保留 token-aware 分块
-- `embedding.js`：调用内部 Embedding API（`openai` SDK，配置 `baseURL`）
-- `vectordb.js`：从 AnythingLLM pgvector provider 裁剪，实现：
-  - `addVectors(workspaceSlug, chunks, embeddings)`
-  - `deleteVectors(workspaceId)`
-  - `similaritySearch(workspaceSlug, queryEmbedding, topN, threshold)`
-- `POST /api/workspaces/:slug/documents`：文件上传 → 解析 → 分块 → 入库
-- `DELETE /api/workspaces/:slug/documents/:id`：删除文档及对应向量
-- `GET /api/workspaces/:slug/documents`：列出已上传文档（文件名 + chunk 数量）
-
-**前端：**
-- `DocumentManager` 组件（可折叠面板，位于聊天界面右侧或底部）
-- 拖拽上传区域（参考 AnythingLLM 的 `DnDWrapper`）
-- 上传进度提示 + 错误处理
-- 文档列表（文件名 + 删除按钮）
-
-**完成标志**：上传一份 PDF，数据库 `vectors` 表可查到对应向量数据。
+- `yarn build`：✅ 构建成功，258KB JS bundle
 
 ---
 
@@ -411,8 +397,8 @@ CREATE TABLE chats (
 |---|---|---|
 | M1：脚手架就绪 | ✅ 第 1 天 | 前后端联通，数据库就绪 |
 | M2：可登录 | ✅ 第 1 天 | 登录、JWT、路由保护 |
-| M3：知识库管理 | ✅ 第 1 天 | 知识库 CRUD + 侧边栏 |
-| M4：文档摄取 | 第 11 天 | 上传 PDF 可查到向量 |
+| M3：知识库管理 | 第 7 天 | 知识库 CRUD + 侧边栏 |
+| M4：文档摄取 | ✅ 第 1 天 | 上传 PDF 可查到向量 |
 | M5：RAG 对话 | 第 15 天 | 流式问答 + 来源引用 |
 | M6：配置中心 | 第 16 天 | UI 可配置 LLM 端点 |
 | M7：内网部署包 | 第 18 天 | 一键部署，文档齐全 |

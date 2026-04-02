@@ -1,6 +1,13 @@
-const router = require("express").Router();
-const { query } = require("../db/client");
+const router   = require("express").Router();
+const crypto   = require("crypto");
+const { query }       = require("../db/client");
 const { requireAuth } = require("../middleware/auth");
+const { upload }      = require("../middleware/upload");
+const { parseFile }   = require("../services/parser");
+const { splitText }   = require("../services/chunker");
+const { embedTexts }  = require("../services/embedding");
+const { addVectors, deleteByDocIds } = require("../services/vectordb");
+const logger = require("../utils/logger");
 
 /** 自动生成 slug：小写字母数字连接符 */
 function toSlug(name) {
@@ -91,6 +98,126 @@ router.delete("/:slug", async (req, res, next) => {
     );
     if (!rows.length) return res.status(404).json({ error: "知识库不存在" });
     res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ─── 文档子路由 ───────────────────────────────────────────────────────────────
+
+/** GET /api/workspaces/:slug/documents - 列出已上传文档（按文件名汇总） */
+router.get("/:slug/documents", async (req, res, next) => {
+  try {
+    const { rows: ws } = await query("SELECT id FROM workspaces WHERE slug=$1", [req.params.slug]);
+    if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
+
+    const { rows } = await query(
+      `SELECT filename, file_hash,
+              COUNT(*) AS chunk_count,
+              MAX(created_at) AS created_at
+       FROM documents
+       WHERE workspace_id = $1
+       GROUP BY filename, file_hash
+       ORDER BY MAX(created_at) ASC`,
+      [ws[0].id]
+    );
+    res.json({ documents: rows });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/workspaces/:slug/documents
+ * 上传 → 解析 → 分块 → Embedding → 存库
+ * 耗时较长，前端需处理超时
+ */
+router.post(
+  "/:slug/documents",
+  upload.single("file"),
+  async (req, res, next) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "请选择要上传的文件" });
+
+      const { rows: ws } = await query(
+        "SELECT id FROM workspaces WHERE slug=$1", [req.params.slug]
+      );
+      if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
+      const workspaceId = ws[0].id;
+
+      // 计算文件 hash，相同文件不重复入库
+      const fileHash = crypto.createHash("md5").update(req.file.buffer).digest("hex");
+      const { rows: existing } = await query(
+        "SELECT id FROM documents WHERE workspace_id=$1 AND file_hash=$2 LIMIT 1",
+        [workspaceId, fileHash]
+      );
+      if (existing.length) {
+        return res.json({ ok: true, message: "该文件已存在，跳过重复上传", skipped: true });
+      }
+
+      logger.info(`处理文件: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} KB)`);
+
+      // 1. 解析文本
+      const text = await parseFile(req.file);
+      if (!text.trim()) return res.status(400).json({ error: "文件内容为空或无法解析" });
+
+      // 2. 分块
+      const chunks = splitText(text);
+      if (!chunks.length) return res.status(400).json({ error: "文本分块失败" });
+      logger.info(`分块完成: ${chunks.length} 个 chunk`);
+
+      // 3. 写入 documents 表
+      const insertedIds = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const { rows } = await query(
+          `INSERT INTO documents (workspace_id, filename, file_hash, chunk_index, content, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [workspaceId, req.file.originalname, fileHash, i, chunks[i],
+           JSON.stringify({ chunk_index: i, total_chunks: chunks.length })]
+        );
+        insertedIds.push(rows[0].id);
+      }
+
+      // 4. Embedding
+      logger.info(`开始 Embedding ${chunks.length} 个 chunk...`);
+      const embeddings = await embedTexts(chunks);
+
+      // 5. 写入向量表
+      await addVectors({ docIds: insertedIds, workspaceId, embeddings });
+      logger.info(`文件 ${req.file.originalname} 处理完成`);
+
+      res.json({
+        ok: true,
+        filename:    req.file.originalname,
+        chunk_count: chunks.length,
+      });
+    } catch (err) {
+      // multer 错误（文件类型/大小）直接返回 400
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ error: `文件超过大小限制 ${process.env.MAX_UPLOAD_SIZE_MB || 50} MB` });
+      }
+      next(err);
+    }
+  }
+);
+
+/** DELETE /api/workspaces/:slug/documents/:filename - 删除文档及其向量 */
+router.delete("/:slug/documents/:filename", async (req, res, next) => {
+  try {
+    const { rows: ws } = await query("SELECT id FROM workspaces WHERE slug=$1", [req.params.slug]);
+    if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
+
+    const filename = decodeURIComponent(req.params.filename);
+    const { rows: docs } = await query(
+      "SELECT id FROM documents WHERE workspace_id=$1 AND filename=$2",
+      [ws[0].id, filename]
+    );
+    if (!docs.length) return res.status(404).json({ error: "文档不存在" });
+
+    const docIds = docs.map((d) => d.id);
+    await deleteByDocIds(docIds);
+    await query(
+      "DELETE FROM documents WHERE workspace_id=$1 AND filename=$2",
+      [ws[0].id, filename]
+    );
+
+    res.json({ ok: true, deleted: docIds.length });
   } catch (err) { next(err); }
 });
 

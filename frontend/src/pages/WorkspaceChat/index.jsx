@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Books, ArrowRight } from "@phosphor-icons/react";
+import { Books, ArrowRight, FolderOpen } from "@phosphor-icons/react";
 import Sidebar from "@/components/Sidebar";
+import DocumentManager from "@/components/DocumentManager";
 import { getBySlug } from "@/api/workspaces";
 
 export default function WorkspaceChat() {
   const { slug } = useParams();
-  const [workspace, setWorkspace] = useState(null);
-  const [loading, setLoading]     = useState(false);
+  const [workspace, setWorkspace]   = useState(null);
+  const [loading, setLoading]       = useState(false);
+  const [showDocs, setShowDocs]     = useState(false);
 
   useEffect(() => {
     if (!slug) { setWorkspace(null); return; }
@@ -51,20 +53,44 @@ export default function WorkspaceChat() {
           /* Phase 4/5 实现：文档管理 + 对话区 */
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* 知识库标题栏 */}
-            <header className="flex items-center px-6 py-4 border-b border-white/10 flex-shrink-0">
+            <header className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">
               <div>
                 <h1 className="text-white font-semibold text-base">{workspace.name}</h1>
                 {workspace.description && (
                   <p className="text-theme-text-secondary text-xs mt-0.5">{workspace.description}</p>
                 )}
               </div>
+              {/* 文档管理 Toggle */}
+              <button
+                onClick={() => setShowDocs((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs
+                            transition-colors border
+                            ${showDocs
+                              ? "bg-theme-button-primary/15 text-theme-button-primary border-theme-button-primary/30"
+                              : "text-theme-text-secondary border-white/10 hover:text-white hover:bg-white/5"
+                            }`}
+              >
+                <FolderOpen size={14} />
+                文档
+              </button>
             </header>
 
-            {/* 对话内容区（Phase 5 展开） */}
-            <div className="flex-1 flex items-center justify-center">
-              <p className="text-theme-text-secondary text-sm">
-                对话区域 — Phase 5 实现
-              </p>
+            {/* 内容区：对话 + 可选文档面板 */}
+            <div className="flex-1 flex overflow-hidden">
+              {/* 对话内容区（Phase 5 展开） */}
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-theme-text-secondary text-sm">
+                  对话区域 — Phase 5 实现
+                </p>
+              </div>
+
+              {/* 文档管理面板（右侧抽屉） */}
+              {showDocs && (
+                <DocumentManager
+                  slug={slug}
+                  onClose={() => setShowDocs(false)}
+                />
+              )}
             </div>
           </div>
         )}
