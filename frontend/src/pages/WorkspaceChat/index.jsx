@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { Books, ArrowRight, FolderOpen } from "@phosphor-icons/react";
 import Sidebar from "@/components/Sidebar";
 import DocumentManager from "@/components/DocumentManager";
+import ChatContainer from "@/components/ChatContainer";
 import { getBySlug } from "@/api/workspaces";
 
 export default function WorkspaceChat() {
@@ -77,11 +78,9 @@ export default function WorkspaceChat() {
 
             {/* 内容区：对话 + 可选文档面板 */}
             <div className="flex-1 flex overflow-hidden">
-              {/* 对话内容区（Phase 5 展开） */}
-              <div className="flex-1 flex items-center justify-center">
-                <p className="text-theme-text-secondary text-sm">
-                  对话区域 — Phase 5 实现
-                </p>
+              {/* 对话区 */}
+              <div className="flex-1 overflow-hidden">
+                <ChatContainer slug={slug} />
               </div>
 
               {/* 文档管理面板（右侧抽屉） */}

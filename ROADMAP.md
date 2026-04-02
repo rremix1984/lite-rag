@@ -326,35 +326,33 @@ CREATE TABLE chats (
 
 ---
 
-### Phase 5：RAG 对话引擎（预计 3-4 天）
+### Phase 5：RAG 对话引擎 ✅ 已完成
 
-**目标**：实现完整的 RAG 检索 + 流式对话。
+**完成时间**：2026-04-02
 
-任务清单：
+**已交付文件：**
+- `server/services/llm.js` — openai SDK 流式调用，支持 baseURL 对接内部 LLM
+- `server/services/rag.js` — buildRAGContext（嵌入+检索）/ buildMessages（组装 Prompt）/ getRecentHistory
+- `server/routes/workspaces.js` — 新增 POST/GET/DELETE /chats 子路由
+- `frontend/src/utils/markdown.js` — markdown-it + highlight.js + DOMPurify 渲染
+- `frontend/src/api/chat.js` — getChats / clearChats
+- `frontend/src/hooks/useStreamChat.js` — fetch-event-source SSE hook，消息状态管理
+- `frontend/src/components/ChatContainer/index.jsx` — 主联容器
+- `frontend/src/components/ChatContainer/ChatHistory/index.jsx` — 用户/AI 消息气泡+Markdown
+- `frontend/src/components/ChatContainer/PromptInput/index.jsx` — 输入框+发送/停止/清空
+- `frontend/src/components/ChatContainer/Citation/index.jsx` — 来源引用，可展开预览
+- `frontend/src/pages/WorkspaceChat/index.jsx` — 替换占位文字，整合 ChatContainer
 
-**后端：**
-- `rag.js`：核心检索逻辑（借鉴 AnythingLLM `stream.js` 裁剪）
-  1. 对用户输入调用 Embedding API
-  2. pgvector 相似度检索（cosine，取 topN）
-  3. 组装 system prompt + 上下文 + 历史消息
-  4. 调用 LLM（流式）
-- `llm.js`：LLM 调用封装（`openai` SDK，`stream: true`）
-- `stream.js`：SSE chunk 写入工具（从 AnythingLLM 直接复用）
-- `POST /api/workspaces/:slug/chat`：流式 SSE 端点
-- `GET /api/workspaces/:slug/chats`：历史对话记录
-- `DELETE /api/workspaces/:slug/chats`：清空历史
-- 对话历史写入 `chats` 表（含 sources 字段）
+**关键设计：**
+- 流式光标动画（`.reply > *:last-child::after` blink）
+- `pipeStreamToSSE` 处理流结束后携带 sources 一次性推送
+- 切换知识库时自动加载历史对话
+- 中止请求通过 AbortController 实现
 
-**前端：**
-- `useStreamChat.js` hook：基于 `@microsoft/fetch-event-source` 处理 SSE
-- `ChatHistory` 组件（借鉴 AnythingLLM `HistoricalMessage`，移除 TTS/Edit/Fork）
-- 流式打字机效果（AI 消息逐 token 渲染）
-- `Citation` 组件（借鉴 AnythingLLM Citation，显示引用来源文件名+片段）
-- `PromptInput` 组件（借鉴 AnythingLLM PromptInput，移除 Agent/STT 菜单）
-- 发送中状态（禁止重复提交 + 停止按钮）
-- 加载历史消息
-
-**完成标志**：向知识库提问，可看到流式回答和底部来源引用。
+**验证结果：**
+- `yarn build`：✅ 构建成功
+- `pm2 restart`：✅ 服务正常运行
+- 访问 http://localhost:3001 可完整体验：登录→创建知识库→上传文档→流式问答→来源引用
 
 ---
 
@@ -406,7 +404,7 @@ CREATE TABLE chats (
 | M2：可登录 | ✅ 第 1 天 | 登录、JWT、路由保护 |
 | M3：知识库管理 | ✅ 第 1 天 | 知识库 CRUD + 侧边栏 |
 | M4：文档摄取 | ✅ 第 1 天 | 上传 PDF 可查到向量 |
-| M5：RAG 对话 | 第 15 天 | 流式问答 + 来源引用 |
+| M5：RAG 对话 | ✅ 第 1 天 | 流式问答 + 来源引用 |
 | M6：配置中心 | 第 16 天 | UI 可配置 LLM 端点 |
 | M7：内网部署包 | 第 18 天 | 一键部署，文档齐全 |
 

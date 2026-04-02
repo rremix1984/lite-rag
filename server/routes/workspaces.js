@@ -1,5 +1,6 @@
 const router   = require("express").Router();
 const crypto   = require("crypto");
+const { v4: uuidv4 } = require("uuid");
 const { query }       = require("../db/client");
 const { requireAuth } = require("../middleware/auth");
 const { upload }      = require("../middleware/upload");
@@ -7,6 +8,9 @@ const { parseFile }   = require("../services/parser");
 const { splitText }   = require("../services/chunker");
 const { embedTexts }  = require("../services/embedding");
 const { addVectors, deleteByDocIds } = require("../services/vectordb");
+const { streamChat }  = require("../services/llm");
+const { buildRAGContext, getRecentHistory, buildMessages } = require("../services/rag");
+const { initSSE, pipeStreamToSSE, writeTextResponse } = require("../utils/stream");
 const logger = require("../utils/logger");
 
 /** 自动生成 slug：小写字母数字连接符 */
@@ -218,6 +222,93 @@ router.delete("/:slug/documents/:filename", async (req, res, next) => {
     );
 
     res.json({ ok: true, deleted: docIds.length });
+  } catch (err) { next(err); }
+});
+
+// ─── Chat 子路由 ───────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/workspaces/:slug/chat
+ * SSE 流式 RAG 对话接口
+ */
+router.post("/:slug/chat", async (req, res, next) => {
+  const { message } = req.body;
+  if (!message?.trim()) return res.status(400).json({ error: "消息不能为空" });
+
+  try {
+    const { rows: ws } = await query(
+      "SELECT id, name, slug, system_prompt, similarity_threshold, top_n FROM workspaces WHERE slug=$1",
+      [req.params.slug]
+    );
+    if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
+    const workspace = ws[0];
+
+    // 建立 SSE 连接
+    initSSE(res);
+    const uuid = uuidv4();
+
+    // 1. RAG 检索
+    const { contextText, sources } = await buildRAGContext({
+      workspaceId:  workspace.id,
+      userMessage:  message.trim(),
+      topN:         workspace.top_n || 4,
+      threshold:    workspace.similarity_threshold || 0.25,
+    });
+
+    // 2. 历史消息
+    const history = await getRecentHistory({ workspaceId: workspace.id, userId: req.user.id });
+
+    // 3. 组装 messages
+    const messages = buildMessages({ workspace, userMessage: message.trim(), contextText, history });
+
+    // 4. 流式 LLM
+    const stream    = await streamChat(messages);
+    const fullText  = await pipeStreamToSSE(res, stream, { uuid, sources });
+
+    // 5. 存入 chats 表
+    await query(
+      "INSERT INTO chats (workspace_id, user_id, role, content, sources) VALUES ($1,$2,$3,$4,$5)",
+      [workspace.id, req.user.id, "user", message.trim(), "[]"]
+    );
+    await query(
+      "INSERT INTO chats (workspace_id, user_id, role, content, sources) VALUES ($1,$2,$3,$4,$5)",
+      [workspace.id, req.user.id, "assistant", fullText, JSON.stringify(sources)]
+    );
+
+    res.end();
+  } catch (err) {
+    logger.error(`chat error: ${err.message}`);
+    try {
+      writeTextResponse(res, { uuid: uuidv4(), text: null, error: err.message });
+      res.end();
+    } catch { /* response already ended */ }
+    if (!res.headersSent) next(err);
+  }
+});
+
+/** GET /api/workspaces/:slug/chats - 对话历史 */
+router.get("/:slug/chats", async (req, res, next) => {
+  try {
+    const { rows: ws } = await query("SELECT id FROM workspaces WHERE slug=$1", [req.params.slug]);
+    if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
+
+    const { rows } = await query(
+      `SELECT id, role, content, sources, created_at
+       FROM chats WHERE workspace_id=$1 AND (user_id=$2 OR user_id IS NULL)
+       ORDER BY created_at ASC`,
+      [ws[0].id, req.user.id]
+    );
+    res.json({ chats: rows });
+  } catch (err) { next(err); }
+});
+
+/** DELETE /api/workspaces/:slug/chats - 清空历史 */
+router.delete("/:slug/chats", async (req, res, next) => {
+  try {
+    const { rows: ws } = await query("SELECT id FROM workspaces WHERE slug=$1", [req.params.slug]);
+    if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
+    await query("DELETE FROM chats WHERE workspace_id=$1 AND user_id=$2", [ws[0].id, req.user.id]);
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
