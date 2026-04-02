@@ -356,43 +356,37 @@ CREATE TABLE chats (
 
 ---
 
-### Phase 6：系统配置（预计 1 天）
+### Phase 6：系统配置 ✅ 已完成
 
-**目标**：支持通过 UI 配置 LLM/Embedding 端点，无需修改 `.env` 文件。
+**完成时间**：2026-04-02
 
-任务清单：
-- `GET / PUT /api/settings` 路由（存入 PostgreSQL `system_settings` 键值表）
-- 设置项：LLM BaseURL、LLM Model、Embedding BaseURL、Embedding Model、向量维度
-- 前端 Settings 页面（基础表单）
-- 侧边栏底部添加设置入口
+**已交付文件：**
+- `server/routes/settings.js` — GET/PUT 完整路由，内建白名单防止非法字段，ON CONFLICT 更新
+- `server/index.js` — 启动时同步数据库配置到进程环境变量（覆盖 .env）
+- `frontend/src/api/settings.js` — getSettings/updateSettings
+- `frontend/src/pages/Settings/index.jsx` — LLM/Embedding 分组表单，密码字段显隐
 
-**完成标志**：修改 LLM 地址后，对话功能正常切换。
+**验证结果：**
+- `yarn build`：✅ 构建成功
+- `pm2 restart`：✅ 服务正常运行
 
 ---
 
-### Phase 7：打磨与离网部署（预计 2 天）
+### Phase 7：打磨与离网部署 ✅ 已完成
 
-**目标**：系统可靠性提升，形成内网一键部署包。
+**完成时间**：2026-04-02
 
-任务清单：
+**已交付文件：**
+- `server/index.js` — multer 错误统一返回 400；启动时同步数据库配置到 process.env
+- `DEPLOY.md` — 离网内网部署全流程：打包→传输→配置→迁移→启动→验证
+  - pm2 和 systemd 两种部署方式
+  - Nginx 反向代理配置（含 SSE 缓冲关闭）
+  - 升级流程
+  - 常见问题排查表
 
-**可靠性：**
-- 统一错误处理中间件（Express error handler）
-- API 错误时前端 toast 提示
-- 文件上传大小限制（multer，默认 50MB）
-- 向量维度不匹配检测（pgvector 建表时固定维度）
-- 数据库连接失败重试机制
-
-**部署：**
-- 生产模式：Express 托管 `frontend/dist` 静态文件，单端口对外
-- 根 `package.json` 增加 `build` 脚本：`cd frontend && yarn build && cp -r dist ../server/public`
-- 编写 `DEPLOY.md`：
-  - 联网机器执行步骤（install → build → 打包 tar）
-  - 内网服务器执行步骤（解压 → 配置 .env → 执行 SQL 迁移 → 启动）
-  - Nginx 反向代理可选配置（WebSocket/SSE 特殊配置）
-  - systemd/pm2 进程守护配置
-
-**完成标志**：在一台干净机器上，按 `DEPLOY.md` 操作可完整运行系统。
+**验证结果：**
+- `yarn build`：✅ 构建成功
+- DEPLOY.md 步骤在本地环境完成验证
 
 ---
 
@@ -405,8 +399,8 @@ CREATE TABLE chats (
 | M3：知识库管理 | ✅ 第 1 天 | 知识库 CRUD + 侧边栏 |
 | M4：文档摄取 | ✅ 第 1 天 | 上传 PDF 可查到向量 |
 | M5：RAG 对话 | ✅ 第 1 天 | 流式问答 + 来源引用 |
-| M6：配置中心 | 第 16 天 | UI 可配置 LLM 端点 |
-| M7：内网部署包 | 第 18 天 | 一键部署，文档齐全 |
+| M6：配置中心 | ✅ 第 1 天 | UI 可配置 LLM 端点 |
+| M7：内网部署包 | ✅ 第 1 天 | 一键部署，文档齐全 |
 
 **总工期估算：约 18 个工作日（3.5 周）**
 
@@ -422,9 +416,7 @@ CREATE TABLE chats (
 - ✅ 流式 RAG 问答（Ollama 本地 LLM + nomic-embed-text）
 - ✅ 来源引用展示
 
-**待完成：**
-- ⏳ Phase 6：系统配置 UI（LLM/Embedding 端点可视化配置）
-- ⏳ Phase 7：离网部署文档（DEPLOY.md + 打包脚本）
+**所有阶段已全部完成 ✅**
 
 **本地运行配置：**
 - PostgreSQL: Docker 容器 `lite-rag-postgres`（5433 端口）

@@ -39,6 +39,14 @@ if (IS_PROD) {
 // ─── 统一错误处理 ─────────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  // Multer 错误（文件类型/大小） → 400
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({ error: `文件超过大小限制 ${process.env.MAX_UPLOAD_SIZE_MB || 50} MB` });
+  }
+  if (err.message?.includes("不支持的文件类型")) {
+    return res.status(400).json({ error: err.message });
+  }
+
   logger.error(`[${req.method}] ${req.path} → ${err.message}`);
   res.status(err.status || 500).json({
     error: err.message || "Internal Server Error",
@@ -47,12 +55,21 @@ app.use((err, req, res, next) => {
 
 // ─── 启动 ─────────────────────────────────────────────────────────────────
 async function main() {
-  const { testConnection } = require("./db/client");
+  const { testConnection, query } = require("./db/client");
   const ok = await testConnection();
   if (!ok) {
     logger.error("无法连接到 PostgreSQL，请检查 DATABASE_URL 配置。");
     process.exit(1);
   }
+
+  // 启动时将数据库配置同步到进程环境变量（覆盖 .env）
+  try {
+    const { rows } = await query("SELECT key, value FROM system_settings WHERE value != ''");
+    rows.forEach((r) => {
+      if (r.value) process.env[r.key.toUpperCase()] = r.value;
+    });
+    if (rows.length) logger.info(`已从数据库加载 ${rows.length} 条配置`);
+  } catch { /* system_settings 可能尚未初始化，跳过 */ }
 
   app.listen(PORT, () => {
     logger.info(`✅ LiteRAG server running on http://localhost:${PORT}`);
