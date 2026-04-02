@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
+import { AuthProvider } from "@/contexts/AuthContext";
 import Login         from "@/pages/Login";
 import WorkspaceChat from "@/pages/WorkspaceChat";
 import Settings      from "@/pages/Settings";
@@ -9,7 +10,7 @@ import PrivateRoute  from "@/components/PrivateRoute";
 
 export default function App() {
   return (
-    <>
+    <AuthProvider>
       <Routes>
         {/* 公开路由 */}
         <Route path="/login" element={<Login />} />
@@ -25,7 +26,6 @@ export default function App() {
         {/* 404 重定向 */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-
       <ToastContainer
         position="bottom-right"
         autoClose={3000}
@@ -37,6 +37,6 @@ export default function App() {
         pauseOnHover
         theme="dark"
       />
-    </>
+    </AuthProvider>
   );
 }
