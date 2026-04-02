@@ -50,8 +50,10 @@ async function run() {
         continue;
       }
 
-      // 读取并执行 SQL
-      const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
+      // 读取并执行 SQL（替换向量维度占位符）
+      let sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
+      const dim = parseInt(process.env.EMBEDDING_DIMENSIONS || "1536", 10);
+      sql = sql.replace(/vector\(1536\)/g, `vector(${dim})`);
       try {
         await client.query("BEGIN");
         await client.query(sql);
