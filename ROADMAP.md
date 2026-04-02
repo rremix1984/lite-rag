@@ -412,6 +412,28 @@ CREATE TABLE chats (
 
 ---
 
+## 当前整体进度（2026-04-02 更新）
+**实际进度：M1-M5 已全部完成，仅用 1 天（原计划 15 天）**
+
+核心功能已可完整运行，访问 http://localhost:3001 可体验：
+- ✅ 登录认证（JWT）
+- ✅ 创建/删除知识库
+- ✅ 上传文档（PDF/Word/Excel/TXT） → 自动解析分块 → pgvector 向量化
+- ✅ 流式 RAG 问答（Ollama 本地 LLM + nomic-embed-text）
+- ✅ 来源引用展示
+
+**待完成：**
+- ⏳ Phase 6：系统配置 UI（LLM/Embedding 端点可视化配置）
+- ⏳ Phase 7：离网部署文档（DEPLOY.md + 打包脚本）
+
+**本地运行配置：**
+- PostgreSQL: Docker 容器 `lite-rag-postgres`（5433 端口）
+- LLM: Ollama `qwen3:4b`
+- Embedding: Ollama `nomic-embed-text:latest`（768 维）
+- 进程管理: pm2（`pm2 status` 查看，`pm2 restart lite-rag` 重启）
+
+---
+
 ## 未来可扩展方向（不在 MVP 范围）
 
 - 多用户权限：用户与知识库的访问控制
