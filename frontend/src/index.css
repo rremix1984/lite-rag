@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   主题变量 - 直接复用自 AnythingLLM
+   ============================================================ */
+* {
+  -webkit-font-smoothing: antialiased;
+}
+
+:root {
+  --theme-loader: #ffffff;
+  --theme-bg-primary: #0e0f0f;
+  --theme-bg-secondary: #1b1b1e;
+  --theme-bg-sidebar: #0e0f0f;
+  --theme-bg-container: #0e0f0f;
+  --theme-bg-chat: #1b1b1e;
+  --theme-bg-chat-input: #27282a;
+  --theme-text-primary: #ffffff;
+  --theme-text-secondary: rgba(255, 255, 255, 0.6);
+  --theme-placeholder: #57585a;
+  --theme-sidebar-item-default: rgba(255, 255, 255, 0.1);
+  --theme-sidebar-item-selected: rgba(255, 255, 255, 0.3);
+  --theme-sidebar-item-hover: #3f3f42;
+  --theme-sidebar-subitem-default: rgba(255, 255, 255, 0.05);
+  --theme-sidebar-border: rgba(255, 255, 255, 0.1);
+  --theme-sidebar-item-workspace-active: #ffffff;
+  --theme-sidebar-item-workspace-inactive: #ffffff;
+  --theme-sidebar-footer-icon: rgba(255, 255, 255, 0.1);
+  --theme-sidebar-footer-icon-fill: #ffffff;
+  --theme-sidebar-footer-icon-hover: rgba(255, 255, 255, 0.2);
+  --theme-chat-input-border: #525355;
+  --theme-action-menu-bg: #27282a;
+  --theme-action-menu-item-hover: rgba(255, 255, 255, 0.1);
+  --theme-settings-input-bg: #0e0f0f;
+  --theme-settings-input-placeholder: rgba(255, 255, 255, 0.5);
+  --theme-settings-input-active: rgb(255 255 255 / 0.2);
+  --theme-settings-input-text: #ffffff;
+  --theme-modal-border: #3f3f42;
+  --theme-button-primary: #46c8ff;
+  --theme-button-primary-hover: #434343;
+  --theme-button-cta: #7cd4fd;
+  --theme-button-text: #a8a9ab;
+  --theme-button-delete-hover-text: #f97066;
+  --theme-button-delete-hover-bg: #37282b;
+  --theme-popup-menu-bg: #000000;
+  --theme-home-text: #ffffff;
+  --theme-home-text-secondary: #9f9fa0;
+  --theme-home-bg-card: #1a1b1b;
+  --theme-home-button-primary: #36bffa;
+  --theme-home-button-primary-hover: rgba(54, 191, 250, 0.9);
+  --theme-home-button-secondary: #27282a;
+  --theme-home-border: rgba(255, 255, 255, 0.2);
+}
+
+html, body {
+  padding: 0;
+  margin: 0;
+  background-color: var(--theme-bg-primary);
+  color: var(--theme-text-primary);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+}
+
+* { box-sizing: border-box; }
+a { color: inherit; text-decoration: none; }
+
+/* ============================================================
+   Markdown 渲染样式 - 复用自 AnythingLLM
+   ============================================================ */
+.markdown, .markdown > * { font-weight: 400; }
+.markdown h1 { font-size: xx-large; line-height: 1.7; padding-left: 0.3rem; }
+.markdown h2 { line-height: 1.5; font-size: x-large; padding-left: 0.3rem; }
+.markdown h3 { line-height: 1.4; font-size: large; padding-left: 0.3rem; }
+.markdown table { width: 100%; border-collapse: collapse; color: #bdbdbe; font-size: 13px; margin: 30px 0; border-radius: 10px; overflow: hidden; }
+.markdown table thead { color: #fff; text-transform: uppercase; font-weight: bolder; }
+.markdown table th, .markdown table td { padding: 8px 15px; border-bottom: 1px solid #cdcdcd2e; text-align: left; }
+.markdown hr { border: 0; border-top: 1px solid #cdcdcd40; margin: 1rem 0; }
+.markdown ol { list-style: decimal-leading-zero; padding-left: 0; padding-top: 10px; margin: 10px; }
+.markdown ol li { margin-left: 20px; padding-left: 10px; line-height: 1.4rem; }
+.markdown ul { list-style: revert-layer; padding-left: 0; padding-top: 10px; padding-bottom: 10px; margin: 10px; }
+.markdown ul li { margin-left: 20px; padding-left: 10px; line-height: 1.4rem; }
+.markdown p { font-weight: 400; margin: 0.35rem; }
+.markdown strong { font-weight: 600; color: #fff; }
+.markdown > * a { color: var(--theme-button-cta); text-decoration: underline; }
+.markdown pre { margin: 20px 0; }
+
+/* ============================================================
+   聊天流式输入光标动画 - 复用自 AnythingLLM
+   ============================================================ */
+.reply > *:last-child::after {
+  content: "|";
+  animation: blink 1.5s steps(1) infinite;
+  color: white;
+  font-size: 14px;
+}
+
+@keyframes blink {
+  0%   { opacity: 0; }
+  50%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ============================================================
+   消息移除动画
+   ============================================================ */
+.animate-remove { animation: fadeAndShrink 800ms forwards; }
+
+@keyframes fadeAndShrink {
+  50%  { opacity: 25%; }
+  75%  { opacity: 10%; }
+  100% { height: 0px; opacity: 0%; display: none; }
+}
+
+/* ============================================================
+   滚动条样式
+   ============================================================ */
+.show-scrollbar {
+  overflow-y: scroll !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(255, 255, 255, 0.3) rgba(0, 0, 0, 0.1) !important;
+}
+.show-scrollbar::-webkit-scrollbar { width: 8px !important; display: block !important; }
+.show-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.1) !important; border-radius: 4px !important; }
+.show-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.3) !important; border-radius: 4px !important; min-height: 40px !important; }
+
+.no-scroll { -ms-overflow-style: none !important; scrollbar-width: none !important; }
+#chat-container::-webkit-scrollbar, .no-scroll::-webkit-scrollbar { display: none !important; }
+
+/* ============================================================
+   登录输入框样式
+   ============================================================ */
+.login-input-gradient {
+  background: linear-gradient(180deg, rgba(61, 65, 71, 0.3) 0%, rgba(44, 47, 53, 0.3) 100%) !important;
+  box-shadow: 0px 4px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* ============================================================
+   渐入动画
+   ============================================================ */
+@keyframes fadeUpIn {
+  0%   { opacity: 0; transform: translateY(5px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeUpIn { animation: fadeUpIn 0.3s ease-out forwards; }
+
+/* Tooltip */
+.tooltip { @apply !bg-black !text-white !py-2 !px-3 !rounded-md !z-10; }

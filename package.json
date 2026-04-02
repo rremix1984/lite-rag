@@ -1,0 +1,18 @@
+{
+  "name": "lite-rag",
+  "version": "0.1.0",
+  "description": "轻量级内网 RAG 知识库系统",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "setup": "cd server && yarn && cd ../frontend && yarn && cd .. && echo \"\\n✅ 依赖安装完成。\"",
+    "dev:server": "cd server && yarn dev",
+    "dev:frontend": "cd frontend && yarn dev",
+    "build": "cd frontend && yarn build && cp -r dist ../server/public && echo \"\\n✅ 前端构建完成，已复制到 server/public。\"",
+    "start": "cd server && yarn start",
+    "migrate": "cd server && node db/migrate.js",
+    "init:admin": "cd server && node scripts/init-admin.js"
+  }
+}
