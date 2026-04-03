@@ -18,14 +18,58 @@
 
 > **pgvector 安装**：`CREATE EXTENSION vector;`（需要 PostgreSQL 超级用户权限）
 >
-> 如果 PostgreSQL 未安装 pgvector，可用 Docker 替代：
+> 如果 PostgreSQL 未安装 pgvector，建议直接使用 Docker 运行（包含持久化目录与健康检查）。
+>
+> ### 用 Docker 启动 PostgreSQL + pgvector（推荐）
+>
 > ```bash
+> # 1) 创建数据目录（用于持久化）
+> mkdir -p /opt/lite-rag/pgdata
+>
+> # 2) 启动容器
 > docker run -d --name lite-rag-postgres \
 >   -e POSTGRES_USER=literag \
 >   -e POSTGRES_PASSWORD=your_password \
 >   -e POSTGRES_DB=lite_rag \
+>   -v /opt/lite-rag/pgdata:/var/lib/postgresql/data \
 >   -p 5432:5432 \
+>   --health-cmd="pg_isready -U literag -d lite_rag" \
+>   --health-interval=10s \
+>   --health-timeout=5s \
+>   --health-retries=5 \
 >   pgvector/pgvector:pg16
+> ```
+>
+> ### 启动后检查
+>
+> ```bash
+> # 查看容器状态
+> docker ps --filter "name=lite-rag-postgres"
+>
+> # 查看健康状态（healthy 为正常）
+> docker inspect -f '{{.State.Health.Status}}' lite-rag-postgres
+>
+> # 进入数据库确认扩展可用
+> docker exec -it lite-rag-postgres psql -U literag -d lite_rag -c "CREATE EXTENSION IF NOT EXISTS vector;"
+> docker exec -it lite-rag-postgres psql -U literag -d lite_rag -c "SELECT extname FROM pg_extension WHERE extname='vector';"
+> ```
+>
+> ### 常用维护命令
+>
+> ```bash
+> docker logs -f lite-rag-postgres          # 查看日志
+> docker restart lite-rag-postgres          # 重启
+> docker stop lite-rag-postgres             # 停止
+> docker start lite-rag-postgres            # 启动
+> ```
+>
+> ### 端口冲突时（可选）
+>
+> 若本机 5432 已被占用，可改映射端口，例如 `-p 5433:5432`。  
+> 对应 `.env` 需改为：
+>
+> ```bash
+> DATABASE_URL=postgresql://literag:your_password@localhost:5433/lite_rag
 > ```
 
 ---
@@ -59,6 +103,20 @@ echo "✅ 打包完成：lite-rag-deploy.tar.gz"
 
 ---
 
+## 部署路径选择（先看这个）
+
+拿到 `lite-rag-deploy.tar.gz` 并传到目标机器后，你有两种部署路径：
+
+- 路径 A（全 Docker）：PostgreSQL + LiteRAG 应用都用 Docker 跑
+- 路径 B（混合部署）：PostgreSQL 用 Docker，LiteRAG 应用本机 Node.js 跑
+
+建议：
+
+- 想“环境一致、迁移方便”选路径 A
+- 想“排障简单、调试方便”选路径 B
+
+---
+
 ## 第二步：传输到内网服务器
 
 ```bash
@@ -68,7 +126,7 @@ scp lite-rag-deploy.tar.gz user@internal-server:/opt/
 
 ---
 
-## 第三步：内网服务器部署
+## 第三步：解压部署包（两种路径共用）
 
 ```bash
 # 1. 解压
@@ -81,7 +139,7 @@ cp .env.example server/.env
 vi server/.env   # 按实际情况填写以下内容
 ```
 
-**`server/.env` 必填项：**
+**`server/.env` 必填项（通用）：**
 
 ```bash
 # 数据库连接
@@ -103,19 +161,116 @@ EMBEDDING_MODEL=your-embedding-model-name
 EMBEDDING_DIMENSIONS=768
 ```
 
+---
+
+## 第四步（路径 A）：全 Docker 部署（PostgreSQL + 应用）
+
+### A-1. 创建 Docker 网络并启动 PostgreSQL（pgvector）
+
 ```bash
-# 3. 执行数据库迁移（创建所有表）
+docker network create lite-rag-net || true
+
+docker run -d --name lite-rag-postgres \
+  --network lite-rag-net \
+  -e POSTGRES_USER=literag \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=lite_rag \
+  -v /opt/lite-rag/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  --health-cmd="pg_isready -U literag -d lite_rag" \
+  --health-interval=10s \
+  --health-timeout=5s \
+  --health-retries=5 \
+  pgvector/pgvector:pg16
+```
+
+### A-2. 修改 `server/.env`（重点：DATABASE_URL 主机名）
+
+路径 A 必须把数据库主机写成容器名 `lite-rag-postgres`：
+
+```bash
+DATABASE_URL=postgresql://literag:your_password@lite-rag-postgres:5432/lite_rag
+```
+
+### A-3. 在容器中执行迁移与管理员初始化
+
+```bash
+docker run --rm \
+  --name lite-rag-init \
+  --network lite-rag-net \
+  -v /opt/lite-rag:/app \
+  -w /app/server \
+  --env-file /opt/lite-rag/server/.env \
+  node:20-bullseye \
+  sh -c "node db/migrate.js && node scripts/init-admin.js admin your_password"
+```
+
+### A-4. 启动 LiteRAG 应用容器
+
+```bash
+docker run -d --name lite-rag-app \
+  --network lite-rag-net \
+  -p 3001:3001 \
+  -v /opt/lite-rag:/app \
+  -w /app/server \
+  --env-file /opt/lite-rag/server/.env \
+  node:20-bullseye \
+  node index.js
+```
+
+### A-5. 路径 A 常用运维命令
+
+```bash
+docker ps
+docker logs -f lite-rag-app
+docker logs -f lite-rag-postgres
+docker restart lite-rag-app
+docker restart lite-rag-postgres
+docker stop lite-rag-app lite-rag-postgres
+docker start lite-rag-postgres lite-rag-app
+```
+
+---
+
+## 第四步（路径 B）：混合部署（数据库 Docker + 应用本机）
+
+### B-1. 启动 PostgreSQL（pgvector）
+
+```bash
+docker run -d --name lite-rag-postgres \
+  -e POSTGRES_USER=literag \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=lite_rag \
+  -v /opt/lite-rag/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  --health-cmd="pg_isready -U literag -d lite_rag" \
+  --health-interval=10s \
+  --health-timeout=5s \
+  --health-retries=5 \
+  pgvector/pgvector:pg16
+```
+
+### B-2. 修改 `server/.env`（重点：DATABASE_URL 主机名）
+
+路径 B 里应用在本机运行，数据库主机写 `localhost`：
+
+```bash
+DATABASE_URL=postgresql://literag:your_password@localhost:5432/lite_rag
+```
+
+### B-3. 执行迁移与管理员初始化
+
+```bash
 cd server
 node db/migrate.js
 
-# 4. 创建管理员账户
 node scripts/init-admin.js admin your_password
 cd ..
 ```
 
 ---
 
-## 第四步：启动服务
+## 第五步：启动服务（仅路径 B 需要）
 
 ### 方式一：pm2（推荐）
 
@@ -169,7 +324,7 @@ systemctl status lite-rag
 
 ---
 
-## 第五步：验证部署
+## 第六步：验证部署（路径 A / B 通用）
 
 ```bash
 # 健康检查
@@ -178,6 +333,173 @@ curl http://localhost:3001/api/health
 
 # 浏览器访问
 http://your-server-ip:3001
+```
+
+---
+
+## 一键复制命令块（按路径直接整段执行）
+
+> 说明：以下脚本假设你已经把 `lite-rag-deploy.tar.gz` 传到目标机器 `/opt`。  
+> 执行前请先把脚本中的变量改成你的真实值（尤其密码、LLM 地址、Embedding 地址）。
+
+### 路径 A 一键脚本（全 Docker）
+
+```bash
+set -e
+
+# ===== 可修改变量 =====
+APP_DIR=/opt/lite-rag
+PKG=/opt/lite-rag-deploy.tar.gz
+PG_USER=literag
+PG_PASS=your_password
+PG_DB=lite_rag
+ADMIN_USER=admin
+ADMIN_PASS=your_admin_password
+JWT_SECRET=replace-with-at-least-32-char-secret
+LLM_BASE_URL=http://your-llm-server/v1
+LLM_API_KEY=your-api-key
+LLM_MODEL=your-model-name
+EMBED_BASE_URL=http://your-embedding-server/v1
+EMBED_API_KEY=your-api-key
+EMBED_MODEL=your-embedding-model-name
+EMBED_DIM=768
+# =====================
+
+mkdir -p /opt
+cd /opt
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR"
+tar -xzf "$PKG" -C "$APP_DIR"
+
+cd "$APP_DIR"
+cp .env.example server/.env
+
+cat > server/.env <<EOF
+DATABASE_URL=postgresql://${PG_USER}:${PG_PASS}@lite-rag-postgres:5432/${PG_DB}
+JWT_SECRET=${JWT_SECRET}
+LLM_BASE_URL=${LLM_BASE_URL}
+LLM_API_KEY=${LLM_API_KEY}
+LLM_MODEL=${LLM_MODEL}
+EMBEDDING_BASE_URL=${EMBED_BASE_URL}
+EMBEDDING_API_KEY=${EMBED_API_KEY}
+EMBEDDING_MODEL=${EMBED_MODEL}
+EMBEDDING_DIMENSIONS=${EMBED_DIM}
+NODE_ENV=production
+EOF
+
+docker network create lite-rag-net || true
+
+docker rm -f lite-rag-postgres >/dev/null 2>&1 || true
+docker run -d --name lite-rag-postgres \
+  --network lite-rag-net \
+  -e POSTGRES_USER=${PG_USER} \
+  -e POSTGRES_PASSWORD=${PG_PASS} \
+  -e POSTGRES_DB=${PG_DB} \
+  -v /opt/lite-rag/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  --health-cmd="pg_isready -U ${PG_USER} -d ${PG_DB}" \
+  --health-interval=10s \
+  --health-timeout=5s \
+  --health-retries=5 \
+  pgvector/pgvector:pg16
+
+docker run --rm \
+  --name lite-rag-init \
+  --network lite-rag-net \
+  -v ${APP_DIR}:/app \
+  -w /app/server \
+  --env-file ${APP_DIR}/server/.env \
+  node:20-bullseye \
+  sh -c "node db/migrate.js && node scripts/init-admin.js ${ADMIN_USER} ${ADMIN_PASS}"
+
+docker rm -f lite-rag-app >/dev/null 2>&1 || true
+docker run -d --name lite-rag-app \
+  --network lite-rag-net \
+  -p 3001:3001 \
+  -v ${APP_DIR}:/app \
+  -w /app/server \
+  --env-file ${APP_DIR}/server/.env \
+  node:20-bullseye \
+  node index.js
+
+echo "✅ 路径 A 部署完成"
+echo "健康检查：curl http://localhost:3001/api/health"
+```
+
+### 路径 B 一键脚本（数据库 Docker + 应用本机）
+
+```bash
+set -e
+
+# ===== 可修改变量 =====
+APP_DIR=/opt/lite-rag
+PKG=/opt/lite-rag-deploy.tar.gz
+PG_USER=literag
+PG_PASS=your_password
+PG_DB=lite_rag
+ADMIN_USER=admin
+ADMIN_PASS=your_admin_password
+JWT_SECRET=replace-with-at-least-32-char-secret
+LLM_BASE_URL=http://your-llm-server/v1
+LLM_API_KEY=your-api-key
+LLM_MODEL=your-model-name
+EMBED_BASE_URL=http://your-embedding-server/v1
+EMBED_API_KEY=your-api-key
+EMBED_MODEL=your-embedding-model-name
+EMBED_DIM=768
+# =====================
+
+mkdir -p /opt
+cd /opt
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR"
+tar -xzf "$PKG" -C "$APP_DIR"
+
+cd "$APP_DIR"
+cp .env.example server/.env
+
+cat > server/.env <<EOF
+DATABASE_URL=postgresql://${PG_USER}:${PG_PASS}@localhost:5432/${PG_DB}
+JWT_SECRET=${JWT_SECRET}
+LLM_BASE_URL=${LLM_BASE_URL}
+LLM_API_KEY=${LLM_API_KEY}
+LLM_MODEL=${LLM_MODEL}
+EMBEDDING_BASE_URL=${EMBED_BASE_URL}
+EMBEDDING_API_KEY=${EMBED_API_KEY}
+EMBEDDING_MODEL=${EMBED_MODEL}
+EMBEDDING_DIMENSIONS=${EMBED_DIM}
+NODE_ENV=production
+EOF
+
+docker rm -f lite-rag-postgres >/dev/null 2>&1 || true
+docker run -d --name lite-rag-postgres \
+  -e POSTGRES_USER=${PG_USER} \
+  -e POSTGRES_PASSWORD=${PG_PASS} \
+  -e POSTGRES_DB=${PG_DB} \
+  -v /opt/lite-rag/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  --health-cmd="pg_isready -U ${PG_USER} -d ${PG_DB}" \
+  --health-interval=10s \
+  --health-timeout=5s \
+  --health-retries=5 \
+  pgvector/pgvector:pg16
+
+cd server
+node db/migrate.js
+node scripts/init-admin.js ${ADMIN_USER} ${ADMIN_PASS}
+
+if command -v pm2 >/dev/null 2>&1; then
+  pm2 delete lite-rag >/dev/null 2>&1 || true
+  NODE_ENV=production pm2 start index.js --name lite-rag
+  pm2 save
+  echo "✅ 路径 B 部署完成（pm2）"
+else
+  NODE_ENV=production nohup node index.js >/tmp/lite-rag.log 2>&1 &
+  echo "✅ 路径 B 部署完成（nohup）"
+  echo "日志：tail -f /tmp/lite-rag.log"
+fi
+
+echo "健康检查：curl http://localhost:3001/api/health"
 ```
 
 ---
@@ -245,6 +567,9 @@ pm2 restart lite-rag --update-env
 | 问题 | 排查方向 |
 |---|---|
 | 启动时 `PostgreSQL 连接失败` | 检查 `DATABASE_URL` 格式和 pg 服务状态 |
+| Docker 启动 PG 但应用仍连不上 | 检查端口映射（5432/5433）、容器健康状态、`DATABASE_URL` 端口是否一致 |
+| 路径 A 应用容器连不上数据库容器 | 检查两者是否在同一 `docker network`；`DATABASE_URL` 主机是否为 `lite-rag-postgres` |
+| 路径 B 启动报找不到依赖 | 确认打包时保留了 `server/node_modules`；或在可联网环境重新安装依赖后打包 |
 | 上传文档后向量写入失败 | 确认 pgvector 扩展已安装；检查 `EMBEDDING_DIMENSIONS` 是否与模型一致 |
 | 流式对话无响应 | 检查 `LLM_BASE_URL` 可达性；Nginx 是否关闭了 `proxy_buffering` |
 | JWT 过期自动登出 | 调整 `.env` 中 `JWT_EXPIRY`（默认 7d） |
