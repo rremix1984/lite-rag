@@ -504,6 +504,56 @@ echo "健康检查：curl http://localhost:3001/api/health"
 
 ---
 
+## 给大模型看的最小提示词模板（可直接复制）
+
+> 用法：把下面模板发给任意大模型（如 GPT/Kimi），再把“待填写项”替换成你的机器信息。  
+> 模型应输出“可直接执行命令”，且必须按你的路径 A / B 选择来生成。
+
+```text
+你是一名资深 Linux 运维工程师。请根据我提供的参数，输出一份可直接复制执行的部署命令。
+
+【目标】
+- 部署项目：LiteRAG
+- 部署方式：{路径A=全Docker / 路径B=数据库Docker+应用本机}
+- 结果要求：输出完整命令，按顺序执行即可成功部署
+
+【机器信息（待填写）】
+- 服务器系统：{Ubuntu 22.04 / CentOS 7 / 其他}
+- 是否已安装 Docker：{是/否}
+- 是否已安装 Node.js：{是/否；版本}
+- 部署目录：{/opt/lite-rag}
+- 部署包路径：{/opt/lite-rag-deploy.tar.gz}
+
+【数据库参数（待填写）】
+- PG_USER={literag}
+- PG_PASS={your_password}
+- PG_DB={lite_rag}
+- 端口映射={5432:5432 或 5433:5432}
+
+【应用参数（待填写）】
+- ADMIN_USER={admin}
+- ADMIN_PASS={your_admin_password}
+- JWT_SECRET={至少32位随机字符串}
+
+【模型参数（待填写）】
+- LLM_BASE_URL={http://your-llm-server/v1}
+- LLM_API_KEY={your-api-key}
+- LLM_MODEL={your-model-name}
+- EMBEDDING_BASE_URL={http://your-embedding-server/v1}
+- EMBEDDING_API_KEY={your-api-key}
+- EMBEDDING_MODEL={your-embedding-model-name}
+- EMBEDDING_DIMENSIONS={768/1024/1536...}
+
+【输出要求】
+1) 仅输出 bash 命令块，不要解释原理。
+2) 命令中要包含：解压、写 server/.env、启动数据库、迁移、初始化管理员、启动应用、健康检查。
+3) 如果是路径A，DATABASE_URL 主机必须是数据库容器名（lite-rag-postgres）。
+4) 如果是路径B，DATABASE_URL 主机必须是 localhost。
+5) 命令需带 set -e，且可重复执行（幂等，尽量包含 docker rm -f ... || true）。
+```
+
+---
+
 ## 可选：Nginx 反向代理
 
 如需通过 80/443 端口访问，配置 Nginx：
