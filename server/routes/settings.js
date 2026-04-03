@@ -1,10 +1,12 @@
 const router = require("express").Router();
-const { query }       = require("../db/client");
+const { exec } = require("child_process");
+const path = require("path");
+const { query } = require("../db/client");
 const { requireAuth } = require("../middleware/auth");
 
 // 可管理的配置项白名单和说明
 const SETTINGS_SCHEMA = {
-  llm_provider:         {
+  llm_provider: {
     label: "LLM 提供商",
     type: "select",
     default: "ollama",
@@ -13,14 +15,14 @@ const SETTINGS_SCHEMA = {
       { label: "GLM", value: "glm" },
     ],
   },
-  llm_base_url:         { label: "LLM 接口地址",        type: "url"  },
-  llm_api_key:          { label: "LLM API Key",          type: "password" },
-  llm_model:            { label: "LLM 模型名称",        type: "text" },
-  llm_context_window:   { label: "LLM 上下文窗口（token）",  type: "number" },
-  embedding_base_url:   { label: "Embedding 接口地址",  type: "url"  },
-  embedding_api_key:    { label: "Embedding API Key",    type: "password" },
-  embedding_model:      { label: "Embedding 模型名称",  type: "text" },
-  embedding_dimensions: { label: "Embedding 向量维度",  type: "number" },
+  llm_base_url: { label: "LLM 接口地址", type: "url" },
+  llm_api_key: { label: "LLM API Key", type: "password" },
+  llm_model: { label: "LLM 模型名称", type: "text" },
+  llm_context_window: { label: "LLM 上下文窗口（token）", type: "number" },
+  embedding_base_url: { label: "Embedding 接口地址", type: "url" },
+  embedding_api_key: { label: "Embedding API Key", type: "password" },
+  embedding_model: { label: "Embedding 模型名称", type: "text" },
+  embedding_dimensions: { label: "Embedding 向量维度", type: "number" },
 };
 
 /** GET /api/settings - 获取所有配置 */
@@ -63,6 +65,11 @@ router.put("/", requireAuth, async (req, res, next) => {
     rows.forEach((r) => {
       const envKey = r.key.toUpperCase();
       if (r.value) process.env[envKey] = r.value;
+    });
+
+    // 自动执行配置导出，更新 seed SQL 文件
+    exec("node scripts/dump-settings.js", { cwd: path.join(__dirname, "..") }, (err) => {
+      if (err) console.error("自动导出配置失败:", err.message);
     });
 
     res.json({ ok: true });

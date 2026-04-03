@@ -9,7 +9,9 @@
   },
   "scripts": {
     "dev": "nodemon index.js",
-    "start": "NODE_ENV=production node index.js"
+    "start": "NODE_ENV=production node index.js",
+    "db:dump": "node scripts/dump-settings.js",
+    "db:seed": "node scripts/seed-settings.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
