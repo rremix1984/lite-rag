@@ -27,3 +27,7 @@ Thumbs.db
 
 # 临时上传文件
 server/uploads/
+
+# 运行时文档存储（不提交业务数据）
+server/storage/*
+!server/storage/.gitkeep
