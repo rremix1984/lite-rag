@@ -337,6 +337,173 @@ http://your-server-ip:3001
 
 ---
 
+## 一键复制命令块（按路径直接整段执行）
+
+> 说明：以下脚本假设你已经把 `lite-rag-deploy.tar.gz` 传到目标机器 `/opt`。  
+> 执行前请先把脚本中的变量改成你的真实值（尤其密码、LLM 地址、Embedding 地址）。
+
+### 路径 A 一键脚本（全 Docker）
+
+```bash
+set -e
+
+# ===== 可修改变量 =====
+APP_DIR=/opt/lite-rag
+PKG=/opt/lite-rag-deploy.tar.gz
+PG_USER=literag
+PG_PASS=your_password
+PG_DB=lite_rag
+ADMIN_USER=admin
+ADMIN_PASS=your_admin_password
+JWT_SECRET=replace-with-at-least-32-char-secret
+LLM_BASE_URL=http://your-llm-server/v1
+LLM_API_KEY=your-api-key
+LLM_MODEL=your-model-name
+EMBED_BASE_URL=http://your-embedding-server/v1
+EMBED_API_KEY=your-api-key
+EMBED_MODEL=your-embedding-model-name
+EMBED_DIM=768
+# =====================
+
+mkdir -p /opt
+cd /opt
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR"
+tar -xzf "$PKG" -C "$APP_DIR"
+
+cd "$APP_DIR"
+cp .env.example server/.env
+
+cat > server/.env <<EOF
+DATABASE_URL=postgresql://${PG_USER}:${PG_PASS}@lite-rag-postgres:5432/${PG_DB}
+JWT_SECRET=${JWT_SECRET}
+LLM_BASE_URL=${LLM_BASE_URL}
+LLM_API_KEY=${LLM_API_KEY}
+LLM_MODEL=${LLM_MODEL}
+EMBEDDING_BASE_URL=${EMBED_BASE_URL}
+EMBEDDING_API_KEY=${EMBED_API_KEY}
+EMBEDDING_MODEL=${EMBED_MODEL}
+EMBEDDING_DIMENSIONS=${EMBED_DIM}
+NODE_ENV=production
+EOF
+
+docker network create lite-rag-net || true
+
+docker rm -f lite-rag-postgres >/dev/null 2>&1 || true
+docker run -d --name lite-rag-postgres \
+  --network lite-rag-net \
+  -e POSTGRES_USER=${PG_USER} \
+  -e POSTGRES_PASSWORD=${PG_PASS} \
+  -e POSTGRES_DB=${PG_DB} \
+  -v /opt/lite-rag/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  --health-cmd="pg_isready -U ${PG_USER} -d ${PG_DB}" \
+  --health-interval=10s \
+  --health-timeout=5s \
+  --health-retries=5 \
+  pgvector/pgvector:pg16
+
+docker run --rm \
+  --name lite-rag-init \
+  --network lite-rag-net \
+  -v ${APP_DIR}:/app \
+  -w /app/server \
+  --env-file ${APP_DIR}/server/.env \
+  node:20-bullseye \
+  sh -c "node db/migrate.js && node scripts/init-admin.js ${ADMIN_USER} ${ADMIN_PASS}"
+
+docker rm -f lite-rag-app >/dev/null 2>&1 || true
+docker run -d --name lite-rag-app \
+  --network lite-rag-net \
+  -p 3001:3001 \
+  -v ${APP_DIR}:/app \
+  -w /app/server \
+  --env-file ${APP_DIR}/server/.env \
+  node:20-bullseye \
+  node index.js
+
+echo "✅ 路径 A 部署完成"
+echo "健康检查：curl http://localhost:3001/api/health"
+```
+
+### 路径 B 一键脚本（数据库 Docker + 应用本机）
+
+```bash
+set -e
+
+# ===== 可修改变量 =====
+APP_DIR=/opt/lite-rag
+PKG=/opt/lite-rag-deploy.tar.gz
+PG_USER=literag
+PG_PASS=your_password
+PG_DB=lite_rag
+ADMIN_USER=admin
+ADMIN_PASS=your_admin_password
+JWT_SECRET=replace-with-at-least-32-char-secret
+LLM_BASE_URL=http://your-llm-server/v1
+LLM_API_KEY=your-api-key
+LLM_MODEL=your-model-name
+EMBED_BASE_URL=http://your-embedding-server/v1
+EMBED_API_KEY=your-api-key
+EMBED_MODEL=your-embedding-model-name
+EMBED_DIM=768
+# =====================
+
+mkdir -p /opt
+cd /opt
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR"
+tar -xzf "$PKG" -C "$APP_DIR"
+
+cd "$APP_DIR"
+cp .env.example server/.env
+
+cat > server/.env <<EOF
+DATABASE_URL=postgresql://${PG_USER}:${PG_PASS}@localhost:5432/${PG_DB}
+JWT_SECRET=${JWT_SECRET}
+LLM_BASE_URL=${LLM_BASE_URL}
+LLM_API_KEY=${LLM_API_KEY}
+LLM_MODEL=${LLM_MODEL}
+EMBEDDING_BASE_URL=${EMBED_BASE_URL}
+EMBEDDING_API_KEY=${EMBED_API_KEY}
+EMBEDDING_MODEL=${EMBED_MODEL}
+EMBEDDING_DIMENSIONS=${EMBED_DIM}
+NODE_ENV=production
+EOF
+
+docker rm -f lite-rag-postgres >/dev/null 2>&1 || true
+docker run -d --name lite-rag-postgres \
+  -e POSTGRES_USER=${PG_USER} \
+  -e POSTGRES_PASSWORD=${PG_PASS} \
+  -e POSTGRES_DB=${PG_DB} \
+  -v /opt/lite-rag/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  --health-cmd="pg_isready -U ${PG_USER} -d ${PG_DB}" \
+  --health-interval=10s \
+  --health-timeout=5s \
+  --health-retries=5 \
+  pgvector/pgvector:pg16
+
+cd server
+node db/migrate.js
+node scripts/init-admin.js ${ADMIN_USER} ${ADMIN_PASS}
+
+if command -v pm2 >/dev/null 2>&1; then
+  pm2 delete lite-rag >/dev/null 2>&1 || true
+  NODE_ENV=production pm2 start index.js --name lite-rag
+  pm2 save
+  echo "✅ 路径 B 部署完成（pm2）"
+else
+  NODE_ENV=production nohup node index.js >/tmp/lite-rag.log 2>&1 &
+  echo "✅ 路径 B 部署完成（nohup）"
+  echo "日志：tail -f /tmp/lite-rag.log"
+fi
+
+echo "健康检查：curl http://localhost:3001/api/health"
+```
+
+---
+
 ## 可选：Nginx 反向代理
 
 如需通过 80/443 端口访问，配置 Nginx：
