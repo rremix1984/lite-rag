@@ -1,5 +1,15 @@
 const BASE = "/api/auth";
 
+async function readJsonOrText(res) {
+  const raw = await res.text();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { error: raw.slice(0, 200) };
+  }
+}
+
 /**
  * 登录
  * @param {string} username
@@ -12,8 +22,9 @@ export async function login(username, password) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
   });
-  const data = await res.json();
+  const data = await readJsonOrText(res);
   if (!res.ok) throw new Error(data.error || "登录失败");
+  if (!data?.token) throw new Error("登录响应异常，请检查后端服务是否已启动");
   return data;
 }
 
@@ -26,8 +37,10 @@ export async function getMe(token) {
   const res = await fetch(`${BASE}/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error("token 已失效");
-  return res.json();
+  const data = await readJsonOrText(res);
+  if (!res.ok) throw new Error(data.error || "token 已失效");
+  if (!data?.user) throw new Error("用户信息获取失败");
+  return data;
 }
 
 /** 登出（无状态，仅通知服务端，可省略） */

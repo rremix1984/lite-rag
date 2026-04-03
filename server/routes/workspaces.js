@@ -1,5 +1,7 @@
 const router   = require("express").Router();
 const crypto   = require("crypto");
+const fs       = require("fs/promises");
+const path     = require("path");
 const { v4: uuidv4 } = require("uuid");
 const { query }       = require("../db/client");
 const { requireAuth } = require("../middleware/auth");
@@ -23,6 +25,35 @@ function toSlug(name) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 50) || `ws-${Date.now()}`;
+}
+
+function maybeDecodeLatin1Filename(name) {
+  if (!name) return name;
+  if (/[\u3400-\u9fff]/.test(name) && !/[ÃÂâæçéå]/.test(name)) return name;
+  if (!/[ÃÂâæçéå]/.test(name)) return name;
+  try {
+    const decoded = Buffer.from(name, "latin1").toString("utf8");
+    return decoded || name;
+  } catch {
+    return name;
+  }
+}
+
+function getStorageDir(workspaceId) {
+  return path.join(__dirname, "..", "storage", "workspaces", String(workspaceId));
+}
+
+async function saveUploadedFile({ workspaceId, fileHash, originalName, buffer }) {
+  const ext = (path.extname(originalName || "").toLowerCase() || ".bin").replace(/[^.\w-]/g, "");
+  const filename = `${fileHash}${ext}`;
+  const dir = getStorageDir(workspaceId);
+  await fs.mkdir(dir, { recursive: true });
+  const absolutePath = path.join(dir, filename);
+  await fs.writeFile(absolutePath, buffer);
+  return {
+    absolutePath,
+    relativePath: path.relative(path.join(__dirname, ".."), absolutePath).replaceAll(path.sep, "/"),
+  };
 }
 
 // 所有路由需要登录
@@ -123,7 +154,11 @@ router.get("/:slug/documents", async (req, res, next) => {
        ORDER BY MAX(created_at) ASC`,
       [ws[0].id]
     );
-    res.json({ documents: rows });
+    const documents = rows.map((r) => ({
+      ...r,
+      filename: maybeDecodeLatin1Filename(r.filename),
+    }));
+    res.json({ documents });
   } catch (err) { next(err); }
 });
 
@@ -136,8 +171,11 @@ router.post(
   "/:slug/documents",
   upload.single("file"),
   async (req, res, next) => {
+    let insertedIds = [];
+    let savedFilePath = "";
     try {
       if (!req.file) return res.status(400).json({ error: "请选择要上传的文件" });
+      const normalizedFilename = maybeDecodeLatin1Filename(req.file.originalname);
 
       const { rows: ws } = await query(
         "SELECT id FROM workspaces WHERE slug=$1", [req.params.slug]
@@ -148,14 +186,35 @@ router.post(
       // 计算文件 hash，相同文件不重复入库
       const fileHash = crypto.createHash("md5").update(req.file.buffer).digest("hex");
       const { rows: existing } = await query(
-        "SELECT id FROM documents WHERE workspace_id=$1 AND file_hash=$2 LIMIT 1",
+        `SELECT d.id,
+                EXISTS (SELECT 1 FROM vectors v WHERE v.doc_id = d.id) AS has_vector
+         FROM documents d
+         WHERE d.workspace_id=$1 AND d.file_hash=$2
+         LIMIT 1`,
         [workspaceId, fileHash]
       );
       if (existing.length) {
-        return res.json({ ok: true, message: "该文件已存在，跳过重复上传", skipped: true });
+        if (!existing[0].has_vector) {
+          const { rows: staleDocs } = await query(
+            "SELECT id FROM documents WHERE workspace_id=$1 AND file_hash=$2",
+            [workspaceId, fileHash]
+          );
+          const staleIds = staleDocs.map((d) => d.id);
+          await deleteByDocIds(staleIds);
+          await query("DELETE FROM documents WHERE workspace_id=$1 AND file_hash=$2", [workspaceId, fileHash]);
+        } else {
+          return res.json({ ok: true, message: "该文件已存在，跳过重复上传", skipped: true });
+        }
       }
 
-      logger.info(`处理文件: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} KB)`);
+      logger.info(`处理文件: ${normalizedFilename} (${(req.file.size / 1024).toFixed(1)} KB)`);
+      const saved = await saveUploadedFile({
+        workspaceId,
+        fileHash,
+        originalName: normalizedFilename,
+        buffer: req.file.buffer,
+      });
+      savedFilePath = saved.absolutePath;
 
       // 1. 解析文本
       const text = await parseFile(req.file);
@@ -167,13 +226,13 @@ router.post(
       logger.info(`分块完成: ${chunks.length} 个 chunk`);
 
       // 3. 写入 documents 表
-      const insertedIds = [];
+      insertedIds = [];
       for (let i = 0; i < chunks.length; i++) {
         const { rows } = await query(
           `INSERT INTO documents (workspace_id, filename, file_hash, chunk_index, content, metadata)
            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-          [workspaceId, req.file.originalname, fileHash, i, chunks[i],
-           JSON.stringify({ chunk_index: i, total_chunks: chunks.length })]
+          [workspaceId, normalizedFilename, fileHash, i, chunks[i],
+           JSON.stringify({ chunk_index: i, total_chunks: chunks.length, storage_relpath: saved.relativePath, mime_type: req.file.mimetype || "" })]
         );
         insertedIds.push(rows[0].id);
       }
@@ -184,22 +243,113 @@ router.post(
 
       // 5. 写入向量表
       await addVectors({ docIds: insertedIds, workspaceId, embeddings });
-      logger.info(`文件 ${req.file.originalname} 处理完成`);
+      logger.info(`文件 ${normalizedFilename} 处理完成`);
 
       res.json({
         ok: true,
-        filename:    req.file.originalname,
+        filename:    normalizedFilename,
         chunk_count: chunks.length,
       });
     } catch (err) {
+      if (insertedIds.length) {
+        try {
+          await deleteByDocIds(insertedIds);
+          await query("DELETE FROM documents WHERE id = ANY($1::int[])", [insertedIds]);
+        } catch {}
+      }
       // multer 错误（文件类型/大小）直接返回 400
       if (err.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({ error: `文件超过大小限制 ${process.env.MAX_UPLOAD_SIZE_MB || 50} MB` });
+      }
+      if (savedFilePath) {
+        try { await fs.unlink(savedFilePath); } catch {}
       }
       next(err);
     }
   }
 );
+
+/** GET /api/workspaces/:slug/documents/:filename/preview - 文档文本预览（按 chunk 合并） */
+router.get("/:slug/documents/:filename/preview", async (req, res, next) => {
+  try {
+    const { rows: ws } = await query("SELECT id FROM workspaces WHERE slug=$1", [req.params.slug]);
+    if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
+
+    const filename = decodeURIComponent(req.params.filename);
+    const legacyLatin1 = Buffer.from(filename, "utf8").toString("latin1");
+    const maxChars = Math.min(Math.max(parseInt(req.query.max_chars || "50000", 10), 1000), 200000);
+
+    const { rows } = await query(
+      `SELECT d.filename,
+              STRING_AGG(d.content, E'\n\n' ORDER BY d.chunk_index) AS full_text,
+              COUNT(*)::int AS chunk_count,
+              MAX(d.metadata->>'storage_relpath') AS storage_relpath
+       FROM documents d
+       WHERE d.workspace_id=$1 AND (d.filename=$2 OR d.filename=$3)
+       GROUP BY d.filename
+       ORDER BY COUNT(*) DESC
+       LIMIT 1`,
+      [ws[0].id, filename, legacyLatin1]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: "文档不存在" });
+
+    const realFilename = maybeDecodeLatin1Filename(rows[0].filename);
+    const ext = (realFilename.split(".").pop() || "").toLowerCase();
+    const { rows: chunkRows } = await query(
+      `SELECT chunk_index, content
+       FROM documents
+       WHERE workspace_id=$1 AND (filename=$2 OR filename=$3)
+       ORDER BY chunk_index ASC
+       LIMIT 200`,
+      [ws[0].id, filename, legacyLatin1]
+    );
+    const preview = (rows[0].full_text || "").slice(0, maxChars);
+    res.json({
+      filename: realFilename,
+      ext,
+      chunk_count: rows[0].chunk_count,
+      truncated: (rows[0].full_text || "").length > preview.length,
+      preview,
+      raw_url: rows[0].storage_relpath ? `/api/workspaces/${encodeURIComponent(req.params.slug)}/documents/${encodeURIComponent(realFilename)}/raw` : "",
+      chunks: chunkRows.map((r) => ({ index: r.chunk_index, content: r.content })),
+    });
+  } catch (err) { next(err); }
+});
+
+router.get("/:slug/documents/:filename/raw", async (req, res, next) => {
+  try {
+    const { rows: ws } = await query("SELECT id FROM workspaces WHERE slug=$1", [req.params.slug]);
+    if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
+
+    const filename = decodeURIComponent(req.params.filename);
+    const legacyLatin1 = Buffer.from(filename, "utf8").toString("latin1");
+    const { rows } = await query(
+      `SELECT MAX(metadata->>'storage_relpath') AS storage_relpath,
+              MAX(filename) AS filename
+       FROM documents
+       WHERE workspace_id=$1 AND (filename=$2 OR filename=$3)`,
+      [ws[0].id, filename, legacyLatin1]
+    );
+    if (!rows.length || !rows[0].storage_relpath) {
+      return res.status(404).json({ error: "文档原始文件不存在，请重新上传后再预览" });
+    }
+    const filePath = path.join(__dirname, "..", rows[0].storage_relpath);
+    const fileExt = (path.extname(rows[0].filename || "") || "").toLowerCase();
+    const mimeMap = {
+      ".pdf": "application/pdf",
+      ".doc": "application/msword",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".txt": "text/plain; charset=utf-8",
+      ".md": "text/markdown; charset=utf-8",
+      ".csv": "text/csv; charset=utf-8",
+      ".xls": "application/vnd.ms-excel",
+      ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    };
+    res.setHeader("Content-Type", mimeMap[fileExt] || "application/octet-stream");
+    res.sendFile(filePath);
+  } catch (err) { next(err); }
+});
 
 /** DELETE /api/workspaces/:slug/documents/:filename - 删除文档及其向量 */
 router.delete("/:slug/documents/:filename", async (req, res, next) => {
@@ -208,17 +358,18 @@ router.delete("/:slug/documents/:filename", async (req, res, next) => {
     if (!ws.length) return res.status(404).json({ error: "知识库不存在" });
 
     const filename = decodeURIComponent(req.params.filename);
+    const legacyLatin1 = Buffer.from(filename, "utf8").toString("latin1");
     const { rows: docs } = await query(
-      "SELECT id FROM documents WHERE workspace_id=$1 AND filename=$2",
-      [ws[0].id, filename]
+      "SELECT id FROM documents WHERE workspace_id=$1 AND (filename=$2 OR filename=$3)",
+      [ws[0].id, filename, legacyLatin1]
     );
     if (!docs.length) return res.status(404).json({ error: "文档不存在" });
 
     const docIds = docs.map((d) => d.id);
     await deleteByDocIds(docIds);
     await query(
-      "DELETE FROM documents WHERE workspace_id=$1 AND filename=$2",
-      [ws[0].id, filename]
+      "DELETE FROM documents WHERE workspace_id=$1 AND (filename=$2 OR filename=$3)",
+      [ws[0].id, filename, legacyLatin1]
     );
 
     res.json({ ok: true, deleted: docIds.length });

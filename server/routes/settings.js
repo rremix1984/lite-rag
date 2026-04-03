@@ -4,6 +4,15 @@ const { requireAuth } = require("../middleware/auth");
 
 // 可管理的配置项白名单和说明
 const SETTINGS_SCHEMA = {
+  llm_provider:         {
+    label: "LLM 提供商",
+    type: "select",
+    default: "ollama",
+    options: [
+      { label: "Ollama", value: "ollama" },
+      { label: "GLM", value: "glm" },
+    ],
+  },
   llm_base_url:         { label: "LLM 接口地址",        type: "url"  },
   llm_api_key:          { label: "LLM API Key",          type: "password" },
   llm_model:            { label: "LLM 模型名称",        type: "text" },
@@ -20,6 +29,11 @@ router.get("/", requireAuth, async (req, res, next) => {
     const { rows } = await query("SELECT key, value FROM system_settings");
     const settings = {};
     rows.forEach((r) => { settings[r.key] = r.value || ""; });
+    Object.entries(SETTINGS_SCHEMA).forEach(([key, def]) => {
+      if (settings[key] === undefined && def.default !== undefined) {
+        settings[key] = String(def.default);
+      }
+    });
     res.json({ settings, schema: SETTINGS_SCHEMA });
   } catch (err) { next(err); }
 });

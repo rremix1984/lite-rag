@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import { PaperPlaneTilt, Stop, Trash } from "@phosphor-icons/react";
 
-export default function PromptInput({ onSend, onStop, onClear, streaming }) {
+export default function PromptInput({ onSend, onStop, onClear, streaming, mode = "default" }) {
   const [text, setText] = useState("");
   const textareaRef = useRef(null);
+  const isLanding = mode === "landing";
 
   function autoResize() {
     const el = textareaRef.current;
@@ -27,35 +28,37 @@ export default function PromptInput({ onSend, onStop, onClear, streaming }) {
   }
 
   return (
-    <div className="flex-shrink-0 px-4 pb-4 pt-2">
-      <div className="flex items-end gap-2 bg-theme-bg-chat-input border border-theme-chat-input-border
-                      rounded-2xl px-4 py-3 focus-within:border-white/20 transition-colors">
+    <div className={`flex-shrink-0 ${isLanding ? "w-full max-w-3xl mx-auto" : "px-4 pb-4 pt-2"}`}>
+      <div className={`flex items-end gap-2 bg-theme-bg-chat-input border border-theme-chat-input-border
+                      focus-within:border-white/20 transition-colors
+                      ${isLanding ? "rounded-3xl px-4 py-4 bg-[#15181d]" : "rounded-2xl px-4 py-3"}`}>
         {/* 文本框 */}
         <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => { setText(e.target.value); autoResize(); }}
           onKeyDown={handleKeyDown}
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行..."
+          placeholder={isLanding ? "尽管问..." : "输入消息，Enter 发送，Shift+Enter 换行..."}
           rows={1}
           disabled={streaming}
-          className="flex-1 bg-transparent text-white placeholder-theme-placeholder text-sm
+          className={`flex-1 bg-transparent text-white placeholder-theme-placeholder
                      resize-none outline-none leading-relaxed max-h-[200px] overflow-y-auto no-scroll
-                     disabled:opacity-60"
+                     disabled:opacity-60 ${isLanding ? "text-base" : "text-sm"}`}
         />
 
         {/* 右侧按钮 */}
         <div className="flex items-center gap-1.5 flex-shrink-0 pb-0.5">
-          {/* 清空历史 */}
-          <button
-            onClick={onClear}
-            disabled={streaming}
-            title="清空对话"
-            className="p-1.5 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/10
+          {!isLanding && (
+            <button
+              onClick={onClear}
+              disabled={streaming}
+              title="清空对话"
+              className="p-1.5 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/10
                        transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <Trash size={15} />
-          </button>
+            >
+              <Trash size={15} />
+            </button>
+          )}
 
           {/* 停止 / 发送 */}
           {streaming ? (
@@ -78,9 +81,11 @@ export default function PromptInput({ onSend, onStop, onClear, streaming }) {
           )}
         </div>
       </div>
-      <p className="text-[11px] text-white/20 text-center mt-1.5">
-        AI 可能出错，请核实重要信息
-      </p>
+      {!isLanding && (
+        <p className="text-[11px] text-white/20 text-center mt-1.5">
+          AI 可能出错，请核实重要信息
+        </p>
+      )}
     </div>
   );
 }

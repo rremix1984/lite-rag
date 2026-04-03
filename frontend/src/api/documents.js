@@ -3,6 +3,8 @@ import { authFetch, authUpload } from "@/utils/api";
 const base = (slug) => `/api/workspaces/${slug}/documents`;
 
 export const getDocuments  = (slug)           => authFetch(base(slug));
+export const getDocumentPreview = (slug, filename, maxChars = 50000) =>
+  authFetch(`${base(slug)}/${encodeURIComponent(filename)}/preview?max_chars=${maxChars}`);
 export const deleteDocument = (slug, filename) =>
   authFetch(`${base(slug)}/${encodeURIComponent(filename)}`, { method: "DELETE" });
 

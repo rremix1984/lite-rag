@@ -8,20 +8,59 @@ import { toast } from "react-toastify";
 const GROUPS = [
   {
     title: "LLM 语言模型",
-    desc:  "对接内部 LLM 服务（OpenAI 兆容接口）",
-    keys:  ["llm_base_url", "llm_api_key", "llm_model", "llm_context_window"],
+    desc:  "对接内部 LLM 服务（OpenAI 兼容接口）",
+    keys:  ["llm_provider", "llm_base_url", "llm_api_key", "llm_model", "llm_context_window"],
   },
   {
     title: "Embedding 向量模型",
-    desc:  "对接内部 Embedding 服务（OpenAI 兆容接口）",
+    desc:  "对接内部 Embedding 服务（OpenAI 兼容接口）",
     keys:  ["embedding_base_url", "embedding_api_key", "embedding_model", "embedding_dimensions"],
   },
 ];
 
-function SettingField({ fieldKey, label, type, value, onChange }) {
+const PROVIDER_PRESETS = {
+  ollama: {
+    llm_base_url: "http://127.0.0.1:11434/v1",
+    llm_api_key: "none",
+    llm_model: "qwen3:4b",
+    embedding_base_url: "http://127.0.0.1:11434/v1",
+    embedding_api_key: "none",
+    embedding_model: "nomic-embed-text:latest",
+  },
+  glm: {
+    llm_base_url: "https://open.bigmodel.cn/api/paas/v4",
+    llm_api_key: "",
+    llm_model: "glm-4-flash",
+    embedding_base_url: "https://open.bigmodel.cn/api/paas/v4",
+    embedding_api_key: "",
+    embedding_model: "embedding-3",
+  },
+};
+
+function SettingField({ fieldKey, label, type, value, options = [], onChange }) {
   const [show, setShow] = useState(false);
   const inputType = type === "password" ? (show ? "text" : "password")
     : type === "number" ? "number" : "text";
+
+  if (type === "select") {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm text-theme-text-secondary">{label}</label>
+        <select
+          value={value}
+          onChange={(e) => onChange(fieldKey, e.target.value)}
+          className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5
+                     text-white text-sm focus:outline-none focus:border-white/30 transition-colors"
+        >
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value} className="bg-[#111]">
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -70,14 +109,78 @@ export default function Settings() {
   }, []);
 
   function handleChange(key, val) {
-    setValues((prev) => ({ ...prev, [key]: val }));
+    setValues((prev) => {
+      if (key === "llm_provider") {
+        const next = { ...prev, llm_provider: val };
+        const currentProvider = prev.llm_provider || "ollama";
+        const currentPreset = PROVIDER_PRESETS[currentProvider] || {};
+        const targetPreset = PROVIDER_PRESETS[val] || {};
+        const syncFields = [
+          "llm_base_url",
+          "llm_api_key",
+          "llm_model",
+          "embedding_base_url",
+          "embedding_api_key",
+          "embedding_model",
+        ];
+        syncFields.forEach((field) => {
+          const oldValue = prev[field] || "";
+          if (!oldValue || oldValue === currentPreset[field]) {
+            next[field] = targetPreset[field] || "";
+          }
+        });
+        return next;
+      }
+
+      const next = { ...prev, [key]: val };
+      const currentProvider = prev.llm_provider || "ollama";
+      const currentPreset = PROVIDER_PRESETS[currentProvider] || {};
+
+      if (key === "llm_api_key") {
+        const oldEmbeddingKey = prev.embedding_api_key || "";
+        if (!oldEmbeddingKey || oldEmbeddingKey === currentPreset.embedding_api_key || oldEmbeddingKey === (prev.llm_api_key || "")) {
+          next.embedding_api_key = val;
+        }
+      }
+
+      if (key === "llm_base_url") {
+        const oldEmbeddingBase = prev.embedding_base_url || "";
+        if (!oldEmbeddingBase || oldEmbeddingBase === currentPreset.embedding_base_url || oldEmbeddingBase === (prev.llm_base_url || "")) {
+          next.embedding_base_url = val;
+        }
+      }
+
+      if (key === "embedding_base_url") {
+        const oldLlmBase = prev.llm_base_url || "";
+        if (!oldLlmBase || oldLlmBase === currentPreset.llm_base_url || oldLlmBase === (prev.embedding_base_url || "")) {
+          next.llm_base_url = val;
+        }
+      }
+
+      if (key === "embedding_api_key") {
+        const oldLlmKey = prev.llm_api_key || "";
+        if (!oldLlmKey || oldLlmKey === currentPreset.llm_api_key || oldLlmKey === (prev.embedding_api_key || "")) {
+          next.llm_api_key = val;
+        }
+      }
+
+      return next;
+    });
   }
 
   async function handleSave() {
+    const requiredKeys = ["llm_base_url", "llm_model", "embedding_base_url", "embedding_model"];
+    for (const key of requiredKeys) {
+      if (!String(values[key] || "").trim()) {
+        toast.error(`请先填写「${schema[key]?.label || key}」`);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       await updateSettings(values);
-      toast.success("配置已保存，重启服务后生效");
+      toast.success("配置已保存，当前服务立即生效");
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -109,7 +212,7 @@ export default function Settings() {
             <div>
               <h1 className="text-white font-semibold text-xl">系统配置</h1>
               <p className="text-theme-text-secondary text-xs mt-0.5">
-                修改 LLM 和 Embedding 服务地址
+                LLM 与 Embedding 按同一提供商联动配置
               </p>
             </div>
           </div>
@@ -130,6 +233,7 @@ export default function Settings() {
                         fieldKey={key}
                         label={schema[key].label}
                         type={schema[key].type}
+                        options={schema[key].options || []}
                         value={values[key] || ""}
                         onChange={handleChange}
                       />
