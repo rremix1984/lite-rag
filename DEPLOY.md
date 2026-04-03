@@ -18,14 +18,58 @@
 
 > **pgvector 安装**：`CREATE EXTENSION vector;`（需要 PostgreSQL 超级用户权限）
 >
-> 如果 PostgreSQL 未安装 pgvector，可用 Docker 替代：
+> 如果 PostgreSQL 未安装 pgvector，建议直接使用 Docker 运行（包含持久化目录与健康检查）。
+>
+> ### 用 Docker 启动 PostgreSQL + pgvector（推荐）
+>
 > ```bash
+> # 1) 创建数据目录（用于持久化）
+> mkdir -p /opt/lite-rag/pgdata
+>
+> # 2) 启动容器
 > docker run -d --name lite-rag-postgres \
 >   -e POSTGRES_USER=literag \
 >   -e POSTGRES_PASSWORD=your_password \
 >   -e POSTGRES_DB=lite_rag \
+>   -v /opt/lite-rag/pgdata:/var/lib/postgresql/data \
 >   -p 5432:5432 \
+>   --health-cmd="pg_isready -U literag -d lite_rag" \
+>   --health-interval=10s \
+>   --health-timeout=5s \
+>   --health-retries=5 \
 >   pgvector/pgvector:pg16
+> ```
+>
+> ### 启动后检查
+>
+> ```bash
+> # 查看容器状态
+> docker ps --filter "name=lite-rag-postgres"
+>
+> # 查看健康状态（healthy 为正常）
+> docker inspect -f '{{.State.Health.Status}}' lite-rag-postgres
+>
+> # 进入数据库确认扩展可用
+> docker exec -it lite-rag-postgres psql -U literag -d lite_rag -c "CREATE EXTENSION IF NOT EXISTS vector;"
+> docker exec -it lite-rag-postgres psql -U literag -d lite_rag -c "SELECT extname FROM pg_extension WHERE extname='vector';"
+> ```
+>
+> ### 常用维护命令
+>
+> ```bash
+> docker logs -f lite-rag-postgres          # 查看日志
+> docker restart lite-rag-postgres          # 重启
+> docker stop lite-rag-postgres             # 停止
+> docker start lite-rag-postgres            # 启动
+> ```
+>
+> ### 端口冲突时（可选）
+>
+> 若本机 5432 已被占用，可改映射端口，例如 `-p 5433:5432`。  
+> 对应 `.env` 需改为：
+>
+> ```bash
+> DATABASE_URL=postgresql://literag:your_password@localhost:5433/lite_rag
 > ```
 
 ---
@@ -245,6 +289,7 @@ pm2 restart lite-rag --update-env
 | 问题 | 排查方向 |
 |---|---|
 | 启动时 `PostgreSQL 连接失败` | 检查 `DATABASE_URL` 格式和 pg 服务状态 |
+| Docker 启动 PG 但应用仍连不上 | 检查端口映射（5432/5433）、容器健康状态、`DATABASE_URL` 端口是否一致 |
 | 上传文档后向量写入失败 | 确认 pgvector 扩展已安装；检查 `EMBEDDING_DIMENSIONS` 是否与模型一致 |
 | 流式对话无响应 | 检查 `LLM_BASE_URL` 可达性；Nginx 是否关闭了 `proxy_buffering` |
 | JWT 过期自动登出 | 调整 `.env` 中 `JWT_EXPIRY`（默认 7d） |
