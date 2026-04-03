@@ -6,11 +6,21 @@ const toVecStr = (arr) => `[${arr.map(Number).join(",")}]`;
 
 /** cosine 距离 -> 相似度 转换 */
 const distToSim = (d) => {
-  if (d === null || typeof d !== "number") return 0;
-  if (d >= 1) return 1;
-  if (d < 0)  return 1 - Math.abs(d);
-  return 1 - d;
+  const n = Number(d);
+  if (!Number.isFinite(n)) return 0;
+  return 1 - n;
 };
+
+async function getVectorDimension() {
+  const { rows } = await query(
+    `SELECT atttypmod AS dim
+     FROM pg_attribute
+     WHERE attrelid = 'vectors'::regclass
+       AND attname = 'embedding'`
+  );
+  const dim = Number(rows?.[0]?.dim || 0);
+  return Number.isFinite(dim) && dim > 0 ? dim : 0;
+}
 
 /**
  * 批量写入向量
@@ -19,6 +29,20 @@ const distToSim = (d) => {
 async function addVectors({ docIds, workspaceId, embeddings }) {
   if (docIds.length !== embeddings.length) {
     throw new Error("docIds 和 embeddings 数量不匹配");
+  }
+  if (!embeddings.length) return;
+
+  const gotDim = Array.isArray(embeddings[0]) ? embeddings[0].length : 0;
+  const expectedDim = await getVectorDimension();
+  if (!gotDim || !expectedDim) {
+    throw new Error("向量维度检查失败，请确认 vectors.embedding 字段配置");
+  }
+  if (gotDim !== expectedDim) {
+    throw new Error(`向量维度不匹配：数据库要求 ${expectedDim} 维，当前模型返回 ${gotDim} 维。请将 Embedding 向量维度改为 ${expectedDim}，或重建向量表后重传文档。`);
+  }
+  const invalid = embeddings.findIndex((v) => !Array.isArray(v) || v.length !== expectedDim);
+  if (invalid !== -1) {
+    throw new Error(`第 ${invalid + 1} 条向量维度异常，期望 ${expectedDim} 维`);
   }
 
   const values = docIds
@@ -36,7 +60,17 @@ async function addVectors({ docIds, workspaceId, embeddings }) {
  * @returns {{ docId, content, filename, score }[]}
  */
 async function similaritySearch({ workspaceId, queryEmbedding, topN = 4, threshold = 0.25 }) {
+  const queryDim = Array.isArray(queryEmbedding) ? queryEmbedding.length : 0;
+  const expectedDim = await getVectorDimension();
+  if (!queryDim || !expectedDim) {
+    throw new Error("检索向量维度检查失败，请确认 Embedding 服务和向量表配置");
+  }
+  if (queryDim !== expectedDim) {
+    throw new Error(`检索向量维度不匹配：数据库要求 ${expectedDim} 维，当前模型返回 ${queryDim} 维。请将 Embedding 向量维度改为 ${queryDim} 并重建向量表，随后重新上传文档。`);
+  }
+
   const vecStr = toVecStr(queryEmbedding);
+  const fetchLimit = Math.max((Number(topN) || 4) * 6, 20);
   const { rows } = await query(
     `SELECT v.doc_id, v.embedding <=> $1::vector AS _distance,
             d.content, d.filename, d.metadata
@@ -45,18 +79,29 @@ async function similaritySearch({ workspaceId, queryEmbedding, topN = 4, thresho
      WHERE v.workspace_id = $2
      ORDER BY _distance ASC
      LIMIT $3`,
-    [vecStr, workspaceId, topN]
+    [vecStr, workspaceId, fetchLimit]
   );
 
-  return rows
-    .filter((r) => distToSim(r._distance) >= threshold)
-    .map((r) => ({
+  const effectiveThreshold = Number.isFinite(Number(threshold)) ? Number(threshold) : 0.25;
+  const filtered = rows.filter((r) => {
+    if (effectiveThreshold < 0) return true;
+    return distToSim(r._distance) >= effectiveThreshold;
+  });
+  const unique = [];
+  const seenFilename = new Set();
+  for (const r of filtered) {
+    if (seenFilename.has(r.filename)) continue;
+    seenFilename.add(r.filename);
+    unique.push({
       docId:    r.doc_id,
       content:  r.content,
       filename: r.filename,
       metadata: r.metadata,
       score:    distToSim(r._distance),
-    }));
+    });
+    if (unique.length >= topN) break;
+  }
+  return unique;
 }
 
 /** 删除知识库下所有向量 */

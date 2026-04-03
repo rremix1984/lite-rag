@@ -4,6 +4,7 @@ import "react-toastify/dist/ReactToastify.css";
 
 import { AuthProvider } from "@/contexts/AuthContext";
 import Login         from "@/pages/Login";
+import KimiHome      from "@/pages/KimiHome";
 import WorkspaceChat from "@/pages/WorkspaceChat";
 import Settings      from "@/pages/Settings";
 import PrivateRoute  from "@/components/PrivateRoute";
@@ -17,8 +18,8 @@ export default function App() {
 
         {/* 受保护路由（Phase 2 完成后启用 PrivateRoute 守卫） */}
         <Route element={<PrivateRoute />}>
-          <Route path="/"                    element={<Navigate to="/workspace" replace />} />
-          <Route path="/workspace"           element={<WorkspaceChat />} />
+          <Route path="/"                    element={<KimiHome />} />
+          <Route path="/workspace"           element={<KimiHome />} />
           <Route path="/workspace/:slug"     element={<WorkspaceChat />} />
           <Route path="/settings"            element={<Settings />} />
         </Route>

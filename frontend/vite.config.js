@@ -11,7 +11,8 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 5173,
+    strictPort: true,
     // 开发模式：将 /api 请求代理到后端，避免跨域
     proxy: {
       "/api": {

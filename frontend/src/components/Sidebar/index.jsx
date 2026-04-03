@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Plus, Gear, SignOut, Trash, Books } from "@phosphor-icons/react";
+import { Plus, Gear, SignOut, Trash, Books, FileText, Globe, PresentationChart, Table, CompassTool, Code } from "@phosphor-icons/react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getAll, remove } from "@/api/workspaces";
 import NewWorkspaceModal from "./NewWorkspaceModal";
@@ -14,6 +14,14 @@ export default function Sidebar() {
   const [workspaces, setWorkspaces] = useState([]);
   const [showModal, setShowModal]   = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null); // slug to confirm delete
+  const capabilities = [
+    { key: "web", label: "网站", icon: Globe, enabled: false },
+    { key: "doc", label: "文档", icon: FileText, enabled: true },
+    { key: "ppt", label: "PPT", icon: PresentationChart, enabled: false },
+    { key: "sheet", label: "表格", icon: Table, enabled: false },
+    { key: "research", label: "深度研究", icon: CompassTool, enabled: false },
+    { key: "code", label: "AI Code", icon: Code, enabled: false },
+  ];
 
   // 加载知识库列表
   useEffect(() => {
@@ -51,12 +59,9 @@ export default function Sidebar() {
 
   return (
     <>
-      <aside className="flex flex-col h-full w-64 bg-theme-bg-sidebar border-r border-white/10 flex-shrink-0">
-        {/* ── 顶部 Logo ── */}
-        <div className="px-4 py-5 border-b border-white/10">
-          <h1 className="text-xl font-bold text-white tracking-tight">
-            Lite<span className="text-theme-button-primary">RAG</span>
-          </h1>
+      <aside className="flex flex-col h-full w-56 bg-[#0d0f12] border-r border-white/10 flex-shrink-0">
+        <div className="px-4 py-4 border-b border-white/10">
+          <h1 className="text-2xl font-bold text-white tracking-[0.08em] leading-none">LiteRAG</h1>
           {user && (
             <p className="text-xs text-theme-text-secondary mt-0.5 truncate">
               {user.username}
@@ -67,20 +72,39 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* ── 新建按钮 ── */}
-        <div className="px-3 pt-4 pb-2">
+        <div className="px-3 pt-3 pb-2">
           <button
             onClick={() => setShowModal(true)}
-            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm
-                       bg-theme-button-primary/10 text-theme-button-primary border border-theme-button-primary/20
-                       hover:bg-theme-button-primary/20 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm
+                       bg-white/5 text-white border border-white/10 hover:bg-white/10 transition-colors"
           >
             <Plus size={16} weight="bold" />
-            新建知识库
+            新建会话
           </button>
         </div>
 
-        {/* ── 知识库列表 ── */}
+        <div className="px-3 py-1 space-y-1">
+          {capabilities.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.key}
+                disabled={!item.enabled}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors
+                           ${item.enabled
+                             ? "bg-white/10 text-white border border-white/15"
+                             : "text-white/40 border border-transparent hover:bg-white/5"}
+                           ${!item.enabled ? "cursor-not-allowed opacity-80" : ""}`}
+              >
+                <Icon size={15} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mx-3 my-2 h-px bg-white/10" />
+
         <nav className="flex-1 overflow-y-auto px-3 py-1 show-scrollbar space-y-0.5">
           {workspaces.length === 0 && (
             <div className="flex flex-col items-center justify-center h-32 gap-2 text-center">
@@ -123,7 +147,6 @@ export default function Sidebar() {
           })}
         </nav>
 
-        {/* ── 底部操作栏 ── */}
         <div className="border-t border-white/10 px-3 py-3 flex items-center gap-1">
           <button
             onClick={() => navigate("/settings")}

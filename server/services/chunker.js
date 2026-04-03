@@ -11,8 +11,12 @@ let _enc = null;
 
 function getEncoder() {
   if (!_enc) {
-    const { get_encoding } = require("js-tiktoken");
-    _enc = get_encoding("cl100k_base");
+    const tiktoken = require("js-tiktoken");
+    const getEncoding = tiktoken.getEncoding || tiktoken.get_encoding;
+    if (typeof getEncoding !== "function") {
+      throw new Error("js-tiktoken getEncoding 不可用");
+    }
+    _enc = getEncoding("cl100k_base");
   }
   return _enc;
 }

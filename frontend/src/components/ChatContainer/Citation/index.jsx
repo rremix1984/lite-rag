@@ -17,8 +17,8 @@ function combineSources(sources) {
 }
 
 function SourceItem({ source }) {
-  const [open, setOpen] = useState(false);
-  const preview = source.chunks[0]?.slice(0, 200) || "";
+  const [open, setOpen] = useState(true);
+  const preview = (source.chunks || []).join("\n\n").slice(0, 400);
   return (
     <div className="text-xs border border-white/10 rounded-lg overflow-hidden bg-white/5">
       <button
@@ -37,7 +37,7 @@ function SourceItem({ source }) {
       </button>
       {open && (
         <div className="px-3 pb-2 text-white/50 border-t border-white/10 pt-2 leading-relaxed max-h-40 overflow-y-auto show-scrollbar">
-          {preview}{preview.length >= 200 ? "…" : ""}
+          {preview}{preview.length >= 400 ? "…" : ""}
         </div>
       )}
     </div>
